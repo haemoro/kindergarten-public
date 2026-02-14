@@ -5,6 +5,8 @@ import com.sotti.kindergarten.entity.Center
 import com.sotti.kindergarten.exception.CenterNotFoundException
 import com.sotti.kindergarten.exception.InvalidCompareRequestException
 import com.sotti.kindergarten.repository.CenterRepository
+import com.sotti.kindergarten.repository.CenterSearchFilter
+import com.sotti.kindergarten.repository.RegionRepository
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
@@ -19,7 +21,8 @@ import java.util.UUID
 class CenterServiceTest :
     BehaviorSpec({
         val centerRepository = mockk<CenterRepository>(relaxed = true)
-        val centerService = CenterService(centerRepository)
+        val regionRepository = mockk<RegionRepository>(relaxed = true)
+        val centerService = CenterService(centerRepository, regionRepository)
 
         Given("유치원 목록 조회") {
             val center1 = mockk<Center>(relaxed = true)
@@ -34,8 +37,9 @@ class CenterServiceTest :
 
             When("반경 검색으로 조회") {
                 val pageable = PageRequest.of(0, 20, Sort.by("updatedAt").descending())
+                val filter = CenterSearchFilter()
                 every {
-                    centerRepository.findNearby(37.5, 127.0, 2000.0, null, null, pageable)
+                    centerRepository.findNearby(37.5, 127.0, 2000.0, filter, pageable)
                 } returns PageImpl(listOf(center1, center2), pageable, 2)
 
                 val result = centerService.listCenters(37.5, 127.0, 2.0, null, null, null, 0, 20)
@@ -50,8 +54,9 @@ class CenterServiceTest :
 
             When("필터링 없이 조회") {
                 val pageable = PageRequest.of(0, 20, Sort.by("updatedAt").descending())
+                val filter = CenterSearchFilter()
                 every {
-                    centerRepository.findAllWithFilters(null, null, pageable)
+                    centerRepository.findAllWithFilters(filter, pageable)
                 } returns PageImpl(listOf(center1), pageable, 1)
 
                 val result = centerService.listCenters(null, null, null, null, null, null, 0, 20)

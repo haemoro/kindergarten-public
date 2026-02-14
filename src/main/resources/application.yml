@@ -1,12 +1,10 @@
 spring:
+  profiles:
+    active: local
+
   application:
     name: kindergarten
 
-  datasource:
-    url: jdbc:postgresql://aws-1-ap-south-1.pooler.supabase.com:5432/postgres
-    username: postgres.mbcxrrjkqnszucnyijfc
-    password: "!!ehdrjs86a"
-    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
@@ -30,7 +28,3 @@ logging:
 jwt:
   secret: kindergarten-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256
   expiration-ms: 86400000
-
-kindergarten:
-  api:
-    key: 3e64e70789724dca871a5275900fb8dd

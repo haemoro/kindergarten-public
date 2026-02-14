@@ -35,6 +35,8 @@ import com.sotti.kindergarten.exception.CenterNotFoundException
 import com.sotti.kindergarten.exception.ErrorCode
 import com.sotti.kindergarten.exception.InvalidCompareRequestException
 import com.sotti.kindergarten.repository.CenterRepository
+import com.sotti.kindergarten.repository.CenterSearchFilter
+import com.sotti.kindergarten.repository.RegionRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
@@ -51,6 +53,7 @@ import kotlin.math.sqrt
 @Transactional(readOnly = true)
 class CenterService(
     private val centerRepository: CenterRepository,
+    private val regionRepository: RegionRepository,
 ) {
     fun listCenters(
         lat: Double?,
@@ -63,26 +66,18 @@ class CenterService(
         size: Int,
     ): PageResponse<CenterListResponse> {
         val pageable = PageRequest.of(page, size, getSort(sort))
+        val filter = CenterSearchFilter(establishType = establishType, name = query)
 
         val centersPage =
             if (lat != null && lng != null && radiusKm != null) {
-                val radiusMeters = radiusKm * 1000
-                centerRepository.findNearby(lat, lng, radiusMeters, establishType, query, pageable)
+                centerRepository.findNearby(lat, lng, radiusKm * 1000, filter, pageable)
             } else {
-                centerRepository.findAllWithFilters(establishType, query, pageable)
+                centerRepository.findAllWithFilters(filter, pageable)
             }
 
         val content =
             centersPage.content.map { center ->
-                val location = center.location
-                val distance =
-                    if (lat != null && lng != null && location != null) {
-                        calculateDistance(lat, lng, location.y, location.x)
-                    } else {
-                        null
-                    }
-
-                toCenterListResponse(center, distance)
+                toCenterListResponse(center, calculateDistanceOrNull(lat, lng, center))
             }
 
         return PageResponse(
@@ -113,15 +108,7 @@ class CenterService(
 
         val comparisons =
             centers.map { center ->
-                val location = center.location
-                val distance =
-                    if (request.lat != null && request.lng != null && location != null) {
-                        calculateDistance(request.lat, request.lng, location.y, location.x)
-                    } else {
-                        null
-                    }
-
-                toComparisonItem(center, distance)
+                toComparisonItem(center, calculateDistanceOrNull(request.lat, request.lng, center))
             }
 
         return CenterCompareResponse(centers = comparisons)
@@ -133,31 +120,33 @@ class CenterService(
         radiusKm: Double?,
         establishType: String?,
         query: String?,
+        sidoCode: String?,
+        sggCode: String?,
         sort: String?,
         page: Int,
         size: Int,
     ): PageResponse<AppKindergartenSearchResponse> {
         val pageable = PageRequest.of(page, size, getSort(sort))
+        val (sidoName, sggName) = resolveRegionNames(sidoCode, sggCode)
+        val filter =
+            CenterSearchFilter(
+                establishType = establishType,
+                name = query,
+                sidoName = sidoName,
+                sggName = sggName,
+                activeOnly = true,
+            )
 
         val centersPage =
             if (lat != null && lng != null && radiusKm != null) {
-                val radiusMeters = radiusKm * 1000
-                centerRepository.findNearbyActive(lat, lng, radiusMeters, establishType, query, pageable)
+                centerRepository.findNearby(lat, lng, radiusKm * 1000, filter, pageable)
             } else {
-                centerRepository.findAllActiveWithFilters(establishType, query, pageable)
+                centerRepository.findAllWithFilters(filter, pageable)
             }
 
         val content =
             centersPage.content.map { center ->
-                val location = center.location
-                val distance =
-                    if (lat != null && lng != null && location != null) {
-                        calculateDistance(lat, lng, location.y, location.x)
-                    } else {
-                        null
-                    }
-
-                toAppSearchResponse(center, distance)
+                toAppSearchResponse(center, calculateDistanceOrNull(lat, lng, center))
             }
 
         return PageResponse(
@@ -204,15 +193,7 @@ class CenterService(
 
         val comparisons =
             activeCenters.map { center ->
-                val location = center.location
-                val distance =
-                    if (lat != null && lng != null && location != null) {
-                        calculateDistance(lat, lng, location.y, location.x)
-                    } else {
-                        null
-                    }
-
-                toComparisonItem(center, distance)
+                toComparisonItem(center, calculateDistanceOrNull(lat, lng, center))
             }
 
         return AppCompareResponse(centers = comparisons)
@@ -223,10 +204,18 @@ class CenterService(
         lng: Double,
         radiusKm: Double,
         establishType: String?,
+        sidoCode: String?,
+        sggCode: String?,
     ): List<MapMarkerResponse> {
-        val radiusMeters = radiusKm * 1000
-        val projections = centerRepository.findMapMarkers(lat, lng, radiusMeters, establishType)
-        return projections.map { projection ->
+        val (sidoName, sggName) = resolveRegionNames(sidoCode, sggCode)
+        val filter =
+            CenterSearchFilter(
+                establishType = establishType,
+                sidoName = sidoName,
+                sggName = sggName,
+                activeOnly = true,
+            )
+        return centerRepository.findMapMarkers(lat, lng, radiusKm * 1000, filter).map { projection ->
             MapMarkerResponse(
                 id = projection.id,
                 name = projection.name,
@@ -732,6 +721,25 @@ class CenterService(
         } catch (e: Exception) {
             null
         }
+
+    private fun resolveRegionNames(
+        sidoCode: String?,
+        sggCode: String?,
+    ): Pair<String?, String?> {
+        val sidoName = sidoCode?.let { regionRepository.findFirstBySidoCode(it)?.sidoName }
+        val sggName = sggCode?.let { regionRepository.findBySggCode(it)?.sggName }
+        return sidoName to sggName
+    }
+
+    private fun calculateDistanceOrNull(
+        lat: Double?,
+        lng: Double?,
+        center: Center,
+    ): Double? {
+        val location = center.location ?: return null
+        if (lat == null || lng == null) return null
+        return calculateDistance(lat, lng, location.y, location.x)
+    }
 
     private fun calculateDistance(
         lat1: Double,

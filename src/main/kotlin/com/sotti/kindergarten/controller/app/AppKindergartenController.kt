@@ -27,6 +27,8 @@ class AppKindergartenController(
         @RequestParam(required = false, defaultValue = "2") radiusKm: Double,
         @RequestParam(required = false) type: String?,
         @RequestParam(required = false) q: String?,
+        @RequestParam(required = false) sidoCode: String?,
+        @RequestParam(required = false) sggCode: String?,
         @RequestParam(required = false, defaultValue = "distance") sort: String,
         @RequestParam(required = false, defaultValue = "0") page: Int,
         @RequestParam(required = false, defaultValue = "20") size: Int,
@@ -37,6 +39,8 @@ class AppKindergartenController(
             radiusKm = radiusKm,
             establishType = type,
             query = q,
+            sidoCode = sidoCode,
+            sggCode = sggCode,
             sort = sort,
             page = page,
             size = size,
@@ -63,11 +67,15 @@ class AppKindergartenController(
         @RequestParam lng: Double,
         @RequestParam(required = false, defaultValue = "2") radiusKm: Double,
         @RequestParam(required = false) type: String?,
+        @RequestParam(required = false) sidoCode: String?,
+        @RequestParam(required = false) sggCode: String?,
     ): List<MapMarkerResponse> =
         centerService.getMapMarkers(
             lat = lat,
             lng = lng,
             radiusKm = radiusKm,
             establishType = type,
+            sidoCode = sidoCode,
+            sggCode = sggCode,
         )
 }

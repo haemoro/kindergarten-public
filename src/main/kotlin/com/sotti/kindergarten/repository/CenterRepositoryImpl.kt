@@ -6,6 +6,7 @@ import com.querydsl.jpa.impl.JPAQueryFactory
 import com.sotti.kindergarten.entity.Center
 import com.sotti.kindergarten.entity.QCenter
 import jakarta.persistence.EntityManager
+import jakarta.persistence.Query
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.support.PageableExecutionUtils
@@ -18,19 +19,10 @@ class CenterRepositoryImpl(
     private val qCenter = QCenter.center
 
     override fun findAllWithFilters(
-        establishType: String?,
-        name: String?,
+        filter: CenterSearchFilter,
         pageable: Pageable,
     ): Page<Center> {
-        val builder = BooleanBuilder()
-
-        establishType?.let {
-            builder.and(qCenter.establishType.eq(it))
-        }
-        name?.let {
-            builder.and(qCenter.name.contains(it))
-        }
-
+        val builder = BooleanBuilder().applyFilter(filter)
         return executePagedQuery(builder, pageable)
     }
 
@@ -38,37 +30,63 @@ class CenterRepositoryImpl(
         lat: Double,
         lng: Double,
         radiusMeters: Double,
-        establishType: String?,
-        name: String?,
-        pageable: Pageable,
-    ): Page<Center> = executeNearbyQuery(lat, lng, radiusMeters, establishType, name, pageable, activeOnly = false)
-
-    override fun findAllActiveWithFilters(
-        establishType: String?,
-        name: String?,
+        filter: CenterSearchFilter,
         pageable: Pageable,
     ): Page<Center> {
-        val builder = BooleanBuilder()
-        builder.and(qCenter.isActive.isTrue)
+        val conditions = buildNativeConditions(filter)
 
-        establishType?.let {
-            builder.and(qCenter.establishType.eq(it))
-        }
-        name?.let {
-            builder.and(qCenter.name.contains(it))
+        val idSql =
+            """
+            SELECT c.id FROM center c
+            WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
+            $conditions
+            ORDER BY ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC
+            """.trimIndent()
+
+        val idQuery =
+            entityManager
+                .createNativeQuery(idSql)
+                .bindGeoParams(lat, lng, radiusMeters)
+                .bindFilterParams(filter)
+                .apply {
+                    firstResult = pageable.offset.toInt()
+                    maxResults = pageable.pageSize
+                }
+
+        @Suppress("UNCHECKED_CAST")
+        val ids = idQuery.resultList as List<UUID>
+
+        if (ids.isEmpty()) {
+            return PageableExecutionUtils.getPage(emptyList(), pageable) { 0L }
         }
 
-        return executePagedQuery(builder, pageable)
+        val idOrder = ids.withIndex().associate { (index, id) -> id to index }
+        val content =
+            jpaQueryFactory
+                .selectFrom(qCenter)
+                .fetchAllOneToOne()
+                .where(qCenter.id.`in`(ids))
+                .fetch()
+                .sortedBy { idOrder[it.id] }
+
+        val countSql =
+            """
+            SELECT COUNT(*) FROM center c
+            WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
+            $conditions
+            """.trimIndent()
+
+        val countQuery = {
+            val cq =
+                entityManager
+                    .createNativeQuery(countSql)
+                    .bindGeoParams(lat, lng, radiusMeters)
+                    .bindFilterParams(filter)
+            (cq.singleResult as Number).toLong()
+        }
+
+        return PageableExecutionUtils.getPage(content, pageable, countQuery)
     }
-
-    override fun findNearbyActive(
-        lat: Double,
-        lng: Double,
-        radiusMeters: Double,
-        establishType: String?,
-        name: String?,
-        pageable: Pageable,
-    ): Page<Center> = executeNearbyQuery(lat, lng, radiusMeters, establishType, name, pageable, activeOnly = true)
 
     override fun findAllWithAdminFilters(
         keyword: String?,
@@ -104,33 +122,26 @@ class CenterRepositoryImpl(
         lat: Double,
         lng: Double,
         radiusMeters: Double,
-        establishType: String?,
+        filter: CenterSearchFilter,
     ): List<MapMarkerProjection> {
+        val conditions = buildNativeConditions(filter)
+
         val sql =
-            buildString {
-                append(
-                    """
-                    SELECT c.id, c.name, c.establish_type,
-                           ST_Y(c.location::geometry) as lat,
-                           ST_X(c.location::geometry) as lng
-                    FROM center c
-                    WHERE c.is_active = true
-                      AND ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
-                    """.trimIndent(),
-                )
-                if (establishType != null) {
-                    append(" AND c.establish_type = :establishType")
-                }
-                append(" ORDER BY ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC")
-            }
+            """
+            SELECT c.id, c.name, c.establish_type,
+                   ST_Y(c.location::geometry) as lat,
+                   ST_X(c.location::geometry) as lng
+            FROM center c
+            WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
+            $conditions
+            ORDER BY ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC
+            """.trimIndent()
 
         val query =
-            entityManager.createNativeQuery(sql).apply {
-                setParameter("lat", lat)
-                setParameter("lng", lng)
-                setParameter("radiusMeters", radiusMeters)
-                if (establishType != null) setParameter("establishType", establishType)
-            }
+            entityManager
+                .createNativeQuery(sql)
+                .bindGeoParams(lat, lng, radiusMeters)
+                .bindFilterParams(filter)
 
         @Suppress("UNCHECKED_CAST")
         val results = query.resultList as List<Array<Any>>
@@ -144,6 +155,17 @@ class CenterRepositoryImpl(
                 lng = (row[4] as Number).toDouble(),
             )
         }
+    }
+
+    // --- Querydsl helpers ---
+
+    private fun BooleanBuilder.applyFilter(filter: CenterSearchFilter): BooleanBuilder {
+        if (filter.activeOnly) and(qCenter.isActive.isTrue)
+        filter.establishType?.let { and(qCenter.establishType.eq(it)) }
+        filter.name?.let { and(qCenter.name.contains(it)) }
+        filter.sidoName?.let { and(qCenter.address.containsIgnoreCase(it)) }
+        filter.sggName?.let { and(qCenter.address.containsIgnoreCase(it)) }
+        return this
     }
 
     private fun executePagedQuery(
@@ -183,99 +205,6 @@ class CenterRepositoryImpl(
         return PageableExecutionUtils.getPage(content, pageable, countQuery)
     }
 
-    private fun executeNearbyQuery(
-        lat: Double,
-        lng: Double,
-        radiusMeters: Double,
-        establishType: String?,
-        name: String?,
-        pageable: Pageable,
-        activeOnly: Boolean,
-    ): Page<Center> {
-        val idSql =
-            buildString {
-                append(
-                    """
-                    SELECT c.id
-                    FROM center c
-                    WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
-                    """.trimIndent(),
-                )
-                if (activeOnly) {
-                    append(" AND c.is_active = true")
-                }
-                if (establishType != null) {
-                    append(" AND c.establish_type = :establishType")
-                }
-                if (name != null) {
-                    append(" AND c.name LIKE :name")
-                }
-                append(" ORDER BY ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC")
-            }
-
-        val idQuery =
-            entityManager.createNativeQuery(idSql).apply {
-                setParameter("lat", lat)
-                setParameter("lng", lng)
-                setParameter("radiusMeters", radiusMeters)
-                if (establishType != null) setParameter("establishType", establishType)
-                if (name != null) setParameter("name", "%$name%")
-                firstResult = pageable.offset.toInt()
-                maxResults = pageable.pageSize
-            }
-
-        @Suppress("UNCHECKED_CAST")
-        val ids = (idQuery.resultList as List<UUID>)
-
-        if (ids.isEmpty()) {
-            return PageableExecutionUtils.getPage(emptyList(), pageable) { 0L }
-        }
-
-        val centers =
-            jpaQueryFactory
-                .selectFrom(qCenter)
-                .fetchAllOneToOne()
-                .where(qCenter.id.`in`(ids))
-                .fetch()
-
-        val idOrder = ids.withIndex().associate { (index, id) -> id to index }
-        val content = centers.sortedBy { idOrder[it.id] }
-
-        val countSql =
-            buildString {
-                append(
-                    """
-                    SELECT COUNT(*)
-                    FROM center c
-                    WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
-                    """.trimIndent(),
-                )
-                if (activeOnly) {
-                    append(" AND c.is_active = true")
-                }
-                if (establishType != null) {
-                    append(" AND c.establish_type = :establishType")
-                }
-                if (name != null) {
-                    append(" AND c.name LIKE :name")
-                }
-            }
-
-        val countQuery = {
-            val cq =
-                entityManager.createNativeQuery(countSql).apply {
-                    setParameter("lat", lat)
-                    setParameter("lng", lng)
-                    setParameter("radiusMeters", radiusMeters)
-                    if (establishType != null) setParameter("establishType", establishType)
-                    if (name != null) setParameter("name", "%$name%")
-                }
-            (cq.singleResult as Number).toLong()
-        }
-
-        return PageableExecutionUtils.getPage(content, pageable, countQuery)
-    }
-
     private fun JPAQuery<Center>.fetchAllOneToOne(): JPAQuery<Center> =
         this
             .leftJoin(qCenter.building)
@@ -300,4 +229,34 @@ class CenterRepositoryImpl(
             .fetchJoin()
             .leftJoin(qCenter.afterSchool)
             .fetchJoin()
+
+    // --- Native SQL helpers ---
+
+    private fun buildNativeConditions(filter: CenterSearchFilter): String =
+        buildString {
+            if (filter.activeOnly) append(" AND c.is_active = true")
+            filter.establishType?.let { append(" AND c.establish_type = :establishType") }
+            filter.name?.let { append(" AND c.name LIKE :name") }
+            filter.sidoName?.let { append(" AND c.address ILIKE '%' || :sidoName || '%'") }
+            filter.sggName?.let { append(" AND c.address ILIKE '%' || :sggName || '%'") }
+        }
+
+    private fun Query.bindGeoParams(
+        lat: Double,
+        lng: Double,
+        radiusMeters: Double,
+    ): Query =
+        apply {
+            setParameter("lat", lat)
+            setParameter("lng", lng)
+            setParameter("radiusMeters", radiusMeters)
+        }
+
+    private fun Query.bindFilterParams(filter: CenterSearchFilter): Query =
+        apply {
+            filter.establishType?.let { setParameter("establishType", it) }
+            filter.name?.let { setParameter("name", "%$it%") }
+            filter.sidoName?.let { setParameter("sidoName", it) }
+            filter.sggName?.let { setParameter("sggName", it) }
+        }
 }

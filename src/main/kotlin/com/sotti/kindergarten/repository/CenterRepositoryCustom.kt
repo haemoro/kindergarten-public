@@ -5,34 +5,25 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import java.util.UUID
 
+data class CenterSearchFilter(
+    val establishType: String? = null,
+    val name: String? = null,
+    val sidoName: String? = null,
+    val sggName: String? = null,
+    val activeOnly: Boolean = false,
+)
+
 interface CenterRepositoryCustom {
     fun findNearby(
         lat: Double,
         lng: Double,
         radiusMeters: Double,
-        establishType: String?,
-        name: String?,
+        filter: CenterSearchFilter,
         pageable: Pageable,
     ): Page<Center>
 
     fun findAllWithFilters(
-        establishType: String?,
-        name: String?,
-        pageable: Pageable,
-    ): Page<Center>
-
-    fun findNearbyActive(
-        lat: Double,
-        lng: Double,
-        radiusMeters: Double,
-        establishType: String?,
-        name: String?,
-        pageable: Pageable,
-    ): Page<Center>
-
-    fun findAllActiveWithFilters(
-        establishType: String?,
-        name: String?,
+        filter: CenterSearchFilter,
         pageable: Pageable,
     ): Page<Center>
 
@@ -48,7 +39,7 @@ interface CenterRepositoryCustom {
         lat: Double,
         lng: Double,
         radiusMeters: Double,
-        establishType: String?,
+        filter: CenterSearchFilter,
     ): List<MapMarkerProjection>
 }
 
