@@ -143,7 +143,7 @@ class CenterService(
                 // 텍스트 검색 또는 지역 필터 시 반경 제한 없이 전체 검색
                 centerRepository.findAllWithFilters(filter, pageable)
             } else if (lat != null && lng != null && radiusKm != null) {
-                centerRepository.findNearby(lat, lng, radiusKm * 1000, filter, pageable)
+                centerRepository.findNearby(lat, lng, radiusKm * 1000, filter, pageable, sort)
             } else {
                 centerRepository.findAllWithFilters(filter, pageable)
             }
@@ -427,6 +427,8 @@ class CenterService(
         when (sort) {
             "name" -> Sort.by("name").ascending()
             "capacity" -> Sort.by(Sort.Order.desc("totalCapacity").nullsLast())
+            "enrollment" -> Sort.by(Sort.Order.desc("enrollment").nullsLast())
+            "occupancyRate" -> Sort.by(Sort.Order.desc("occupancyRate").nullsLast())
             "updated" -> Sort.by("updatedAt").descending()
             else -> Sort.by("updatedAt").descending()
         }

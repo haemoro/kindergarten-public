@@ -2,6 +2,8 @@ package com.sotti.kindergarten.repository
 
 import com.querydsl.core.BooleanBuilder
 import com.querydsl.core.types.OrderSpecifier
+import com.querydsl.core.types.dsl.Expressions
+import com.querydsl.core.types.dsl.NumberExpression
 import com.querydsl.jpa.impl.JPAQuery
 import com.querydsl.jpa.impl.JPAQueryFactory
 import com.sotti.kindergarten.entity.Center
@@ -40,15 +42,17 @@ class CenterRepositoryImpl(
         radiusMeters: Double,
         filter: CenterSearchFilter,
         pageable: Pageable,
+        sortType: String?,
     ): Page<Center> {
         val conditions = buildNativeConditions(filter)
+        val orderBySql = getNativeOrderBy(sortType)
 
         val idSql =
             """
             SELECT c.id FROM center c
             WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
             $conditions
-            ORDER BY ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC
+            ORDER BY $orderBySql
             """.trimIndent()
 
         val idQuery =
@@ -181,17 +185,44 @@ class CenterRepositoryImpl(
     private fun toOrderSpecifiers(pageable: Pageable): Array<OrderSpecifier<*>> {
         val specifiers =
             pageable.sort.mapNotNull { order ->
-                val expr =
-                    when (order.property) {
-                        "name" -> qCenter.name
-                        "totalCapacity" -> qCenter.totalCapacity
-                        "updatedAt" -> qCenter.updatedAt
-                        else -> null
-                    }
-                expr?.let { if (order.isAscending) it.asc() else it.desc() }
+                when (order.property) {
+                    "name" -> if (order.isAscending) qCenter.name.asc() else qCenter.name.desc()
+                    "totalCapacity" -> if (order.isAscending) qCenter.totalCapacity.asc() else qCenter.totalCapacity.desc()
+                    "updatedAt" -> if (order.isAscending) qCenter.updatedAt.asc() else qCenter.updatedAt.desc()
+                    "enrollment" -> enrollmentExpression().let { if (order.isAscending) it.asc() else it.desc() }
+                    "occupancyRate" -> occupancyRateExpression().let { if (order.isAscending) it.asc() else it.desc() }
+                    else -> null
+                }
             }
         return specifiers.ifEmpty { listOf(qCenter.updatedAt.desc()) }.toTypedArray()
     }
+
+    private fun enrollmentExpression(): NumberExpression<Int> =
+        Expressions.numberTemplate(
+            Int::class.java,
+            "COALESCE({0}, 0) + COALESCE({1}, 0) + COALESCE({2}, 0) + COALESCE({3}, 0) + COALESCE({4}, 0)",
+            qCenter.enrollment3, qCenter.enrollment4, qCenter.enrollment5,
+            qCenter.mixedEnrollment, qCenter.specialEnrollment,
+        )
+
+    private fun occupancyRateExpression(): NumberExpression<Double> =
+        Expressions.numberTemplate(
+            Double::class.java,
+            "CASE WHEN COALESCE({0}, 0) > 0 THEN 1.0 * (COALESCE({1}, 0) + COALESCE({2}, 0) + COALESCE({3}, 0) + COALESCE({4}, 0) + COALESCE({5}, 0)) / {0} ELSE 0.0 END",
+            qCenter.totalCapacity, qCenter.enrollment3, qCenter.enrollment4, qCenter.enrollment5,
+            qCenter.mixedEnrollment, qCenter.specialEnrollment,
+        )
+
+    private fun getNativeOrderBy(sortType: String?): String =
+        when (sortType) {
+            "name" -> "c.name ASC"
+            "capacity" -> "COALESCE(c.total_capacity, 0) DESC"
+            "enrollment" ->
+                "(COALESCE(c.enrollment_3, 0) + COALESCE(c.enrollment_4, 0) + COALESCE(c.enrollment_5, 0) + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) DESC"
+            "occupancyRate" ->
+                "CASE WHEN COALESCE(c.total_capacity, 0) > 0 THEN 1.0 * (COALESCE(c.enrollment_3, 0) + COALESCE(c.enrollment_4, 0) + COALESCE(c.enrollment_5, 0) + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) / c.total_capacity ELSE 0 END DESC"
+            else -> "ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC"
+        }
 
     private fun executePagedQuery(
         builder: BooleanBuilder,

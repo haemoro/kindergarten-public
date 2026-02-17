@@ -22,4 +22,6 @@ abstract class BaseEntity(
     @UpdateTimestamp
     @Column(nullable = false)
     var updatedAt: LocalDateTime = LocalDateTime.now(),
+    @Column(name = "data_hash", length = 32)
+    var dataHash: String? = null,
 )

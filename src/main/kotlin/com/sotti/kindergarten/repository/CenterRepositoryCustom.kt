@@ -20,6 +20,7 @@ interface CenterRepositoryCustom {
         radiusMeters: Double,
         filter: CenterSearchFilter,
         pageable: Pageable,
+        sortType: String? = null,
     ): Page<Center>
 
     fun findAllWithFilters(

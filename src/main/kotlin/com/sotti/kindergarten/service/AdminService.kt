@@ -133,37 +133,50 @@ class AdminService(
         )
     }
 
-    @Transactional
     fun triggerCrawl(request: CrawlTriggerRequest): CrawlHistoryResponse {
         if (crawlHistoryRepository.existsByStatus(CrawlStatus.RUNNING)) {
             throw BusinessException(ErrorCode.CRAWL_ALREADY_RUNNING)
         }
 
         val crawlHistory =
-            CrawlHistory(
-                source = "e-childschoolinfo",
-                status = CrawlStatus.RUNNING,
-                startedAt = LocalDateTime.now(),
+            crawlHistoryRepository.save(
+                CrawlHistory(
+                    source = "e-childschoolinfo",
+                    status = CrawlStatus.RUNNING,
+                    startedAt = LocalDateTime.now(),
+                ),
             )
-        crawlHistoryRepository.save(crawlHistory)
+        val crawlHistoryId = crawlHistory.id!!
 
-        try {
-            if (request.sidoCode != null && request.sggCode != null) {
-                dataSyncService.syncSingleRegion(request.sidoCode, request.sggCode)
-            } else {
-                dataSyncService.syncAllData()
+        Thread {
+            try {
+                val count =
+                    if (request.sidoCode != null && request.sggCode != null) {
+                        dataSyncService.syncSingleRegion(request.sidoCode, request.sggCode)
+                    } else {
+                        dataSyncService.syncAllData()
+                    }
+                val history = crawlHistoryRepository.findById(crawlHistoryId).get()
+                history.status = CrawlStatus.SUCCESS
+                history.itemCount = count
+                history.finishedAt = LocalDateTime.now()
+                crawlHistoryRepository.save(history)
+            } catch (e: Exception) {
+                logger.error("Crawl failed: ${e.message}", e)
+                try {
+                    val history = crawlHistoryRepository.findById(crawlHistoryId).get()
+                    history.status = CrawlStatus.FAILED
+                    history.errorMessage = e.message
+                    history.finishedAt = LocalDateTime.now()
+                    crawlHistoryRepository.save(history)
+                } catch (saveError: Exception) {
+                    logger.error(
+                        "Failed to update crawl history: ${saveError.message}",
+                        saveError,
+                    )
+                }
             }
-
-            crawlHistory.status = CrawlStatus.SUCCESS
-            crawlHistory.finishedAt = LocalDateTime.now()
-            crawlHistoryRepository.save(crawlHistory)
-        } catch (e: Exception) {
-            logger.error("Crawl failed: ${e.message}", e)
-            crawlHistory.status = CrawlStatus.FAILED
-            crawlHistory.errorMessage = e.message
-            crawlHistory.finishedAt = LocalDateTime.now()
-            crawlHistoryRepository.save(crawlHistory)
-        }
+        }.start()
 
         return crawlHistory.toCrawlHistoryResponse()
     }

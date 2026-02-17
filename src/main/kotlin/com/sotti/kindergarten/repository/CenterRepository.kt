@@ -5,6 +5,8 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 import java.util.UUID
 
 @Repository
@@ -36,4 +38,12 @@ interface CenterRepository :
     fun countByIsActiveTrue(): Long
 
     fun countByEstablishType(establishType: String): Long
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE Center c SET c.sourceUpdatedAt = :now WHERE c.id IN :ids")
+    fun updateSourceUpdatedAt(
+        ids: List<UUID>,
+        now: LocalDateTime,
+    ): Int
 }
