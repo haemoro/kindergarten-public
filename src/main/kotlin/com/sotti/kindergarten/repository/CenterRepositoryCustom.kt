@@ -6,7 +6,7 @@ import org.springframework.data.domain.Pageable
 import java.util.UUID
 
 data class CenterSearchFilter(
-    val establishType: String? = null,
+    val establishTypes: List<String>? = null,
     val name: String? = null,
     val sidoName: String? = null,
     val sggName: String? = null,
@@ -47,6 +47,8 @@ data class MapMarkerProjection(
     val id: UUID,
     val name: String,
     val establishType: String?,
+    val address: String?,
+    val phone: String?,
     val lat: Double,
     val lng: Double,
 )

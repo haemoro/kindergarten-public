@@ -66,7 +66,7 @@ class CenterService(
         size: Int,
     ): PageResponse<CenterListResponse> {
         val pageable = PageRequest.of(page, size, getSort(sort))
-        val filter = CenterSearchFilter(establishType = establishType, name = query)
+        val filter = CenterSearchFilter(establishTypes = parseTypes(establishType), name = query)
 
         val centersPage =
             if (lat != null && lng != null && radiusKm != null) {
@@ -130,15 +130,19 @@ class CenterService(
         val (sidoName, sggName) = resolveRegionNames(sidoCode, sggCode)
         val filter =
             CenterSearchFilter(
-                establishType = establishType,
+                establishTypes = parseTypes(establishType),
                 name = query,
                 sidoName = sidoName,
                 sggName = sggName,
                 activeOnly = true,
             )
 
+        val hasTextOrRegion = !query.isNullOrBlank() || sidoCode != null || sggCode != null
         val centersPage =
-            if (lat != null && lng != null && radiusKm != null) {
+            if (hasTextOrRegion) {
+                // 텍스트 검색 또는 지역 필터 시 반경 제한 없이 전체 검색
+                centerRepository.findAllWithFilters(filter, pageable)
+            } else if (lat != null && lng != null && radiusKm != null) {
                 centerRepository.findNearby(lat, lng, radiusKm * 1000, filter, pageable)
             } else {
                 centerRepository.findAllWithFilters(filter, pageable)
@@ -210,7 +214,7 @@ class CenterService(
         val (sidoName, sggName) = resolveRegionNames(sidoCode, sggCode)
         val filter =
             CenterSearchFilter(
-                establishType = establishType,
+                establishTypes = parseTypes(establishType),
                 sidoName = sidoName,
                 sggName = sggName,
                 activeOnly = true,
@@ -220,6 +224,8 @@ class CenterService(
                 id = projection.id,
                 name = projection.name,
                 establishType = projection.establishType,
+                address = projection.address,
+                phone = projection.phone,
                 lat = projection.lat,
                 lng = projection.lng,
             )
@@ -420,6 +426,7 @@ class CenterService(
     private fun getSort(sort: String?): Sort =
         when (sort) {
             "name" -> Sort.by("name").ascending()
+            "capacity" -> Sort.by(Sort.Order.desc("totalCapacity").nullsLast())
             "updated" -> Sort.by("updatedAt").descending()
             else -> Sort.by("updatedAt").descending()
         }
@@ -721,6 +728,13 @@ class CenterService(
         } catch (e: Exception) {
             null
         }
+
+    private fun parseTypes(establishType: String?): List<String>? =
+        establishType
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.takeIf { it.isNotEmpty() }
 
     private fun resolveRegionNames(
         sidoCode: String?,

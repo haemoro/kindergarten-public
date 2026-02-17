@@ -1,6 +1,7 @@
 package com.sotti.kindergarten.repository
 
 import com.querydsl.core.BooleanBuilder
+import com.querydsl.core.types.OrderSpecifier
 import com.querydsl.jpa.impl.JPAQuery
 import com.querydsl.jpa.impl.JPAQueryFactory
 import com.sotti.kindergarten.entity.Center
@@ -17,6 +18,13 @@ class CenterRepositoryImpl(
     private val entityManager: EntityManager,
 ) : CenterRepositoryCustom {
     private val qCenter = QCenter.center
+
+    private fun parseTypes(establishType: String?): List<String>? =
+        establishType
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.takeIf { it.isNotEmpty() }
 
     override fun findAllWithFilters(
         filter: CenterSearchFilter,
@@ -105,8 +113,8 @@ class CenterRepositoryImpl(
                     .or(qCenter.kinderCode.contains(it)),
             )
         }
-        establishType?.let {
-            builder.and(qCenter.establishType.eq(it))
+        parseTypes(establishType)?.let {
+            builder.and(qCenter.establishType.`in`(it))
         }
         isVerified?.let {
             builder.and(qCenter.isVerified.eq(it))
@@ -128,7 +136,7 @@ class CenterRepositoryImpl(
 
         val sql =
             """
-            SELECT c.id, c.name, c.establish_type,
+            SELECT c.id, c.name, c.establish_type, c.address, c.phone,
                    ST_Y(c.location::geometry) as lat,
                    ST_X(c.location::geometry) as lng
             FROM center c
@@ -151,8 +159,10 @@ class CenterRepositoryImpl(
                 id = row[0] as UUID,
                 name = row[1] as String,
                 establishType = row[2] as? String,
-                lat = (row[3] as Number).toDouble(),
-                lng = (row[4] as Number).toDouble(),
+                address = row[3] as? String,
+                phone = row[4] as? String,
+                lat = (row[5] as Number).toDouble(),
+                lng = (row[6] as Number).toDouble(),
             )
         }
     }
@@ -161,23 +171,40 @@ class CenterRepositoryImpl(
 
     private fun BooleanBuilder.applyFilter(filter: CenterSearchFilter): BooleanBuilder {
         if (filter.activeOnly) and(qCenter.isActive.isTrue)
-        filter.establishType?.let { and(qCenter.establishType.eq(it)) }
-        filter.name?.let { and(qCenter.name.contains(it)) }
+        filter.establishTypes?.let { and(qCenter.establishType.`in`(it)) }
+        filter.name?.let { and(qCenter.name.contains(it).or(qCenter.address.contains(it))) }
         filter.sidoName?.let { and(qCenter.address.containsIgnoreCase(it)) }
         filter.sggName?.let { and(qCenter.address.containsIgnoreCase(it)) }
         return this
+    }
+
+    private fun toOrderSpecifiers(pageable: Pageable): Array<OrderSpecifier<*>> {
+        val specifiers =
+            pageable.sort.mapNotNull { order ->
+                val expr =
+                    when (order.property) {
+                        "name" -> qCenter.name
+                        "totalCapacity" -> qCenter.totalCapacity
+                        "updatedAt" -> qCenter.updatedAt
+                        else -> null
+                    }
+                expr?.let { if (order.isAscending) it.asc() else it.desc() }
+            }
+        return specifiers.ifEmpty { listOf(qCenter.updatedAt.desc()) }.toTypedArray()
     }
 
     private fun executePagedQuery(
         builder: BooleanBuilder,
         pageable: Pageable,
     ): Page<Center> {
+        val orderBy = toOrderSpecifiers(pageable)
+
         val ids =
             jpaQueryFactory
                 .select(qCenter.id)
                 .from(qCenter)
                 .where(builder)
-                .orderBy(qCenter.updatedAt.desc())
+                .orderBy(*orderBy)
                 .offset(pageable.offset)
                 .limit(pageable.pageSize.toLong())
                 .fetch()
@@ -191,7 +218,7 @@ class CenterRepositoryImpl(
                 .selectFrom(qCenter)
                 .fetchAllOneToOne()
                 .where(qCenter.id.`in`(ids))
-                .orderBy(qCenter.updatedAt.desc())
+                .orderBy(*orderBy)
                 .fetch()
 
         val countQuery = {
@@ -235,8 +262,8 @@ class CenterRepositoryImpl(
     private fun buildNativeConditions(filter: CenterSearchFilter): String =
         buildString {
             if (filter.activeOnly) append(" AND c.is_active = true")
-            filter.establishType?.let { append(" AND c.establish_type = :establishType") }
-            filter.name?.let { append(" AND c.name LIKE :name") }
+            filter.establishTypes?.let { append(" AND c.establish_type IN (:establishTypes)") }
+            filter.name?.let { append(" AND (c.name LIKE :name OR c.address LIKE :name)") }
             filter.sidoName?.let { append(" AND c.address ILIKE '%' || :sidoName || '%'") }
             filter.sggName?.let { append(" AND c.address ILIKE '%' || :sggName || '%'") }
         }
@@ -254,7 +281,7 @@ class CenterRepositoryImpl(
 
     private fun Query.bindFilterParams(filter: CenterSearchFilter): Query =
         apply {
-            filter.establishType?.let { setParameter("establishType", it) }
+            filter.establishTypes?.let { setParameter("establishTypes", it) }
             filter.name?.let { setParameter("name", "%$it%") }
             filter.sidoName?.let { setParameter("sidoName", it) }
             filter.sggName?.let { setParameter("sggName", it) }
