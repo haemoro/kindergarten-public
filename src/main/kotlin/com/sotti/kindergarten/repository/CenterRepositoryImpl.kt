@@ -201,16 +201,23 @@ class CenterRepositoryImpl(
         Expressions.numberTemplate(
             Int::class.java,
             "COALESCE({0}, 0) + COALESCE({1}, 0) + COALESCE({2}, 0) + COALESCE({3}, 0) + COALESCE({4}, 0)",
-            qCenter.enrollment3, qCenter.enrollment4, qCenter.enrollment5,
-            qCenter.mixedEnrollment, qCenter.specialEnrollment,
+            qCenter.enrollment3,
+            qCenter.enrollment4,
+            qCenter.enrollment5,
+            qCenter.mixedEnrollment,
+            qCenter.specialEnrollment,
         )
 
     private fun occupancyRateExpression(): NumberExpression<Double> =
         Expressions.numberTemplate(
             Double::class.java,
             "CASE WHEN COALESCE({0}, 0) > 0 THEN 1.0 * (COALESCE({1}, 0) + COALESCE({2}, 0) + COALESCE({3}, 0) + COALESCE({4}, 0) + COALESCE({5}, 0)) / {0} ELSE 0.0 END",
-            qCenter.totalCapacity, qCenter.enrollment3, qCenter.enrollment4, qCenter.enrollment5,
-            qCenter.mixedEnrollment, qCenter.specialEnrollment,
+            qCenter.totalCapacity,
+            qCenter.enrollment3,
+            qCenter.enrollment4,
+            qCenter.enrollment5,
+            qCenter.mixedEnrollment,
+            qCenter.specialEnrollment,
         )
 
     private fun getNativeOrderBy(sortType: String?): String =

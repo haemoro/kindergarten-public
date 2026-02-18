@@ -85,6 +85,24 @@ class DataSyncService(
     companion object {
         private const val MAX_RETRY_ATTEMPTS = 3
         private const val PARALLEL_REGION_COUNT = 5
+
+        val AVAILABLE_API_TYPES =
+            listOf(
+                "basicInfo",
+                "building",
+                "classArea",
+                "teacher",
+                "lessonDay",
+                "meal",
+                "bus",
+                "yearOfWork",
+                "environment",
+                "safetyCheck",
+                "safetyEducation",
+                "mutualAid",
+                "insurance",
+                "afterSchool",
+            )
     }
 
     @Scheduled(cron = "0 0 3 * * *")
@@ -172,12 +190,140 @@ class DataSyncService(
         return count
     }
 
+    fun syncByApiType(
+        apiType: String,
+        sidoCode: String? = null,
+        sggCode: String? = null,
+    ): Int {
+        val normalizedType = apiType.lowercase()
+        require(
+            normalizedType in AVAILABLE_API_TYPES.map { it.lowercase() },
+        ) {
+            "Unknown API type: $apiType. " +
+                "Valid: ${AVAILABLE_API_TYPES.joinToString()}"
+        }
+
+        if (sidoCode != null && sggCode != null) {
+            logger.info(
+                "=== Sync [$apiType] started: $sidoCode-$sggCode ===",
+            )
+            val startTime = LocalDateTime.now()
+            val count =
+                runBlocking {
+                    syncOneType(normalizedType, sidoCode, sggCode)
+                }
+            val duration = Duration.between(startTime, LocalDateTime.now())
+            logger.info(
+                "=== Sync [$apiType] finished: $count items, " +
+                    "${duration.toMinutes()}m " +
+                    "${duration.seconds % 60}s ===",
+            )
+            return count
+        }
+
+        val regions = regionRepository.findAll()
+        val totalRegions = regions.size
+        val completedCount = AtomicInteger(0)
+        val startTime = LocalDateTime.now()
+
+        logger.info(
+            "=== Sync [$apiType] started: $totalRegions regions ===",
+        )
+
+        val totalItems =
+            runBlocking(Dispatchers.IO) {
+                val semaphore = Semaphore(PARALLEL_REGION_COUNT)
+                val results =
+                    regions.map { region ->
+                        async {
+                            semaphore.withPermit {
+                                try {
+                                    val regionStart =
+                                        System.currentTimeMillis()
+                                    val count =
+                                        syncOneType(
+                                            normalizedType,
+                                            region.sidoCode,
+                                            region.sggCode,
+                                        )
+                                    val elapsed =
+                                        System.currentTimeMillis() -
+                                            regionStart
+                                    val done =
+                                        completedCount.incrementAndGet()
+                                    logger.info(
+                                        "[{}/{}] {} {} [{}] " +
+                                            "완료 ({}건, {}ms)",
+                                        done,
+                                        totalRegions,
+                                        region.sidoName,
+                                        region.sggName,
+                                        apiType,
+                                        count,
+                                        elapsed,
+                                    )
+                                    count
+                                } catch (e: Exception) {
+                                    val done =
+                                        completedCount.incrementAndGet()
+                                    logger.error(
+                                        "[{}/{}] {} {} [{}] 실패: {}",
+                                        done,
+                                        totalRegions,
+                                        region.sidoName,
+                                        region.sggName,
+                                        apiType,
+                                        e.message,
+                                        e,
+                                    )
+                                    0
+                                }
+                            }
+                        }
+                    }
+                results.awaitAll().sum()
+            }
+
+        val duration = Duration.between(startTime, LocalDateTime.now())
+        logger.info(
+            "=== Sync [$apiType] finished: $totalItems items, " +
+                "${duration.toMinutes()}m " +
+                "${duration.seconds % 60}s ===",
+        )
+        return totalItems
+    }
+
     fun syncRegion(
         sidoCode: String,
         sggCode: String,
     ): Int =
         runBlocking {
             doSyncRegion(sidoCode, sggCode)
+        }
+
+    private suspend fun syncOneType(
+        type: String,
+        sidoCode: String,
+        sggCode: String,
+    ): Int =
+        when (type) {
+            "basicinfo" -> syncBasicInfo(sidoCode, sggCode)
+            "building" -> syncBuilding(sidoCode, sggCode)
+            "classarea" -> syncClassArea(sidoCode, sggCode)
+            "teacher" -> syncTeacher(sidoCode, sggCode)
+            "lessonday" -> syncLessonDay(sidoCode, sggCode)
+            "meal" -> syncMeal(sidoCode, sggCode)
+            "bus" -> syncBus(sidoCode, sggCode)
+            "yearofwork" -> syncYearOfWork(sidoCode, sggCode)
+            "environment" -> syncEnvironment(sidoCode, sggCode)
+            "safetycheck" -> syncSafetyCheck(sidoCode, sggCode)
+            "safetyeducation" ->
+                syncSafetyEducation(sidoCode, sggCode)
+            "mutualaid" -> syncMutualAid(sidoCode, sggCode)
+            "insurance" -> syncInsurance(sidoCode, sggCode)
+            "afterschool" -> syncAfterSchool(sidoCode, sggCode)
+            else ->
+                throw IllegalArgumentException("Unknown type: $type")
         }
 
     private suspend fun doSyncRegion(
@@ -471,7 +617,7 @@ class DataSyncService(
                 }
             }
 
-            centerRepository.saveAll(centersToSave)
+            centersToSave.forEach { centerRepository.save(it) }
 
             if (unchangedCenterIds.isNotEmpty()) {
                 val now = LocalDateTime.now()
@@ -548,7 +694,7 @@ class DataSyncService(
                 }
             }
 
-            buildingRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { buildingRepository.save(it) }
             logger.info(
                 "Building: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allBuildings.size} total " +
@@ -628,7 +774,7 @@ class DataSyncService(
                 }
             }
 
-            classroomRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { classroomRepository.save(it) }
             logger.info(
                 "ClassArea: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allAreas.size} total " +
@@ -702,7 +848,7 @@ class DataSyncService(
                 }
             }
 
-            teacherRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { teacherRepository.save(it) }
             logger.info(
                 "Teacher: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allTeachers.size} total " +
@@ -768,7 +914,7 @@ class DataSyncService(
                 }
             }
 
-            lessonDayRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { lessonDayRepository.save(it) }
             logger.info(
                 "LessonDay: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allLessonDays.size} total " +
@@ -837,7 +983,7 @@ class DataSyncService(
                 }
             }
 
-            mealRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { mealRepository.save(it) }
             logger.info(
                 "Meal: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allMeals.size} total " +
@@ -899,7 +1045,7 @@ class DataSyncService(
                 }
             }
 
-            busRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { busRepository.save(it) }
             logger.info(
                 "Bus: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allBuses.size} total " +
@@ -966,7 +1112,7 @@ class DataSyncService(
                 }
             }
 
-            yearOfWorkRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { yearOfWorkRepository.save(it) }
             logger.info(
                 "YearOfWork: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allYearOfWorks.size} total " +
@@ -1040,7 +1186,7 @@ class DataSyncService(
                 }
             }
 
-            environmentRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { environmentRepository.save(it) }
             logger.info(
                 "Environment: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allEnvironments.size} total " +
@@ -1112,7 +1258,7 @@ class DataSyncService(
                 }
             }
 
-            safetyCheckRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { safetyCheckRepository.save(it) }
             logger.info(
                 "SafetyCheck: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allSafetyChecks.size} total " +
@@ -1169,7 +1315,7 @@ class DataSyncService(
                 }
             }
 
-            safetyEducationRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { safetyEducationRepository.save(it) }
             entitiesToSave.size
         }
 
@@ -1225,7 +1371,7 @@ class DataSyncService(
                 }
             }
 
-            mutualAidRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { mutualAidRepository.save(it) }
             logger.info(
                 "MutualAid: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allMutualAids.size} total " +
@@ -1278,7 +1424,7 @@ class DataSyncService(
                 }
             }
 
-            insuranceRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { insuranceRepository.save(it) }
             entitiesToSave.size
         }
 
@@ -1345,7 +1491,7 @@ class DataSyncService(
                 }
             }
 
-            afterSchoolRepository.saveAll(entitiesToSave)
+            entitiesToSave.forEach { afterSchoolRepository.save(it) }
             logger.info(
                 "AfterSchool: ${entitiesToSave.size} changed/new, " +
                     "$unchangedCount unchanged out of ${allAfterSchools.size} total " +
