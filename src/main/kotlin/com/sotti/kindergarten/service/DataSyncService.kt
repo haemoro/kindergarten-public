@@ -56,7 +56,9 @@ import org.locationtech.jts.geom.PrecisionModel
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
+import java.time.Duration
 import java.time.LocalDateTime
+import java.util.concurrent.atomic.AtomicInteger
 
 @Service
 class DataSyncService(
@@ -94,46 +96,70 @@ class DataSyncService(
 
     fun syncAllData(): Int {
         val regions = regionRepository.findAll()
+        val totalRegions = regions.size
+        val completedCount = AtomicInteger(0)
+        val startTime = LocalDateTime.now()
+
         logger.info(
-            "Found ${regions.size} regions to sync " +
-                "(parallelism=$PARALLEL_REGION_COUNT)",
+            "=== Sync started: $totalRegions regions, " +
+                "parallelism=$PARALLEL_REGION_COUNT ===",
         )
 
-        return runBlocking(Dispatchers.IO) {
-            val semaphore = Semaphore(PARALLEL_REGION_COUNT)
-            val results =
-                regions.map { region ->
-                    async {
-                        semaphore.withPermit {
-                            try {
-                                logger.info(
-                                    "Syncing ${region.sidoName} ${region.sggName} " +
-                                        "(${region.sidoCode}-${region.sggCode})",
-                                )
-                                val count =
-                                    doSyncRegion(
-                                        region.sidoCode,
-                                        region.sggCode,
+        val totalItems =
+            runBlocking(Dispatchers.IO) {
+                val semaphore = Semaphore(PARALLEL_REGION_COUNT)
+                val results =
+                    regions.map { region ->
+                        async {
+                            semaphore.withPermit {
+                                try {
+                                    val regionStart = System.currentTimeMillis()
+                                    val count =
+                                        doSyncRegion(
+                                            region.sidoCode,
+                                            region.sggCode,
+                                        )
+                                    val elapsed =
+                                        System.currentTimeMillis() - regionStart
+                                    val done = completedCount.incrementAndGet()
+                                    logger.info(
+                                        "[{}/{}] {} {} 완료 " +
+                                            "({}건, {}ms)",
+                                        done,
+                                        totalRegions,
+                                        region.sidoName,
+                                        region.sggName,
+                                        count,
+                                        elapsed,
                                     )
-                                logger.info(
-                                    "Completed ${region.sidoName} " +
-                                        "${region.sggName} ($count items)",
-                                )
-                                count
-                            } catch (e: Exception) {
-                                logger.error(
-                                    "Failed to sync region " +
-                                        "${region.sidoCode}-${region.sggCode}: " +
-                                        "${e.message}",
-                                    e,
-                                )
-                                0
+                                    count
+                                } catch (e: Exception) {
+                                    val done = completedCount.incrementAndGet()
+                                    logger.error(
+                                        "[{}/{}] {} {} 실패: {}",
+                                        done,
+                                        totalRegions,
+                                        region.sidoName,
+                                        region.sggName,
+                                        e.message,
+                                        e,
+                                    )
+                                    0
+                                }
                             }
                         }
                     }
-                }
-            results.awaitAll().sum()
-        }
+                results.awaitAll().sum()
+            }
+
+        val duration = Duration.between(startTime, LocalDateTime.now())
+        val minutes = duration.toMinutes()
+        val seconds = duration.seconds % 60
+        logger.info(
+            "=== Sync finished: $totalItems items, " +
+                "${minutes}m ${seconds}s elapsed ===",
+        )
+        return totalItems
     }
 
     fun syncSingleRegion(
