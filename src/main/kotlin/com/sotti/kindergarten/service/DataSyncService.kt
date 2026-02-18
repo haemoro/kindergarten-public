@@ -43,8 +43,13 @@ import com.sotti.kindergarten.repository.CenterTeacherRepository
 import com.sotti.kindergarten.repository.CenterYearOfWorkRepository
 import com.sotti.kindergarten.repository.RegionRepository
 import com.sotti.kindergarten.util.DataHashUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.locationtech.jts.geom.Coordinate
 import org.locationtech.jts.geom.GeometryFactory
 import org.locationtech.jts.geom.PrecisionModel
@@ -77,6 +82,7 @@ class DataSyncService(
 
     companion object {
         private const val MAX_RETRY_ATTEMPTS = 3
+        private const val PARALLEL_REGION_COUNT = 5
     }
 
     @Scheduled(cron = "0 0 3 * * *")
@@ -88,24 +94,46 @@ class DataSyncService(
 
     fun syncAllData(): Int {
         val regions = regionRepository.findAll()
-        logger.info("Found ${regions.size} regions to sync")
+        logger.info(
+            "Found ${regions.size} regions to sync " +
+                "(parallelism=$PARALLEL_REGION_COUNT)",
+        )
 
-        var totalCount = 0
-        regions.forEach { region ->
-            try {
-                logger.info(
-                    "Syncing data for ${region.sidoName} ${region.sggName} " +
-                        "(sido=${region.sidoCode}, sgg=${region.sggCode})",
-                )
-                totalCount += syncRegion(region.sidoCode, region.sggCode)
-            } catch (e: Exception) {
-                logger.error(
-                    "Failed to sync region ${region.sidoCode}-${region.sggCode}: ${e.message}",
-                    e,
-                )
-            }
+        return runBlocking(Dispatchers.IO) {
+            val semaphore = Semaphore(PARALLEL_REGION_COUNT)
+            val results =
+                regions.map { region ->
+                    async {
+                        semaphore.withPermit {
+                            try {
+                                logger.info(
+                                    "Syncing ${region.sidoName} ${region.sggName} " +
+                                        "(${region.sidoCode}-${region.sggCode})",
+                                )
+                                val count =
+                                    doSyncRegion(
+                                        region.sidoCode,
+                                        region.sggCode,
+                                    )
+                                logger.info(
+                                    "Completed ${region.sidoName} " +
+                                        "${region.sggName} ($count items)",
+                                )
+                                count
+                            } catch (e: Exception) {
+                                logger.error(
+                                    "Failed to sync region " +
+                                        "${region.sidoCode}-${region.sggCode}: " +
+                                        "${e.message}",
+                                    e,
+                                )
+                                0
+                            }
+                        }
+                    }
+                }
+            results.awaitAll().sum()
         }
-        return totalCount
     }
 
     fun syncSingleRegion(
@@ -123,23 +151,30 @@ class DataSyncService(
         sggCode: String,
     ): Int =
         runBlocking {
-            var count = 0
-            count += syncBasicInfo(sidoCode, sggCode)
-            count += syncBuilding(sidoCode, sggCode)
-            count += syncClassArea(sidoCode, sggCode)
-            count += syncTeacher(sidoCode, sggCode)
-            count += syncLessonDay(sidoCode, sggCode)
-            count += syncMeal(sidoCode, sggCode)
-            count += syncBus(sidoCode, sggCode)
-            count += syncYearOfWork(sidoCode, sggCode)
-            count += syncEnvironment(sidoCode, sggCode)
-            count += syncSafetyCheck(sidoCode, sggCode)
-            count += syncSafetyEducation(sidoCode, sggCode)
-            count += syncMutualAid(sidoCode, sggCode)
-            count += syncInsurance(sidoCode, sggCode)
-            count += syncAfterSchool(sidoCode, sggCode)
-            count
+            doSyncRegion(sidoCode, sggCode)
         }
+
+    private suspend fun doSyncRegion(
+        sidoCode: String,
+        sggCode: String,
+    ): Int {
+        var count = 0
+        count += syncBasicInfo(sidoCode, sggCode)
+        count += syncBuilding(sidoCode, sggCode)
+        count += syncClassArea(sidoCode, sggCode)
+        count += syncTeacher(sidoCode, sggCode)
+        count += syncLessonDay(sidoCode, sggCode)
+        count += syncMeal(sidoCode, sggCode)
+        count += syncBus(sidoCode, sggCode)
+        count += syncYearOfWork(sidoCode, sggCode)
+        count += syncEnvironment(sidoCode, sggCode)
+        count += syncSafetyCheck(sidoCode, sggCode)
+        count += syncSafetyEducation(sidoCode, sggCode)
+        count += syncMutualAid(sidoCode, sggCode)
+        count += syncInsurance(sidoCode, sggCode)
+        count += syncAfterSchool(sidoCode, sggCode)
+        return count
+    }
 
     // region Hash computation functions
 
