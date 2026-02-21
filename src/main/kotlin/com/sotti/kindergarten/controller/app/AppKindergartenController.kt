@@ -4,7 +4,9 @@ import com.sotti.kindergarten.dto.PageResponse
 import com.sotti.kindergarten.dto.app.AppCompareResponse
 import com.sotti.kindergarten.dto.app.AppKindergartenDetailResponse
 import com.sotti.kindergarten.dto.app.AppKindergartenSearchResponse
+import com.sotti.kindergarten.dto.app.CenterReviewResponse
 import com.sotti.kindergarten.dto.app.MapMarkerResponse
+import com.sotti.kindergarten.service.CenterReviewService
 import com.sotti.kindergarten.service.CenterService
 import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.GetMapping
@@ -19,6 +21,7 @@ import java.util.UUID
 @Validated
 class AppKindergartenController(
     private val centerService: CenterService,
+    private val centerReviewService: CenterReviewService,
 ) {
     @GetMapping("/search")
     fun search(
@@ -60,6 +63,13 @@ class AppKindergartenController(
         val centerIds = ids.split(",").map { UUID.fromString(it.trim()) }
         return centerService.compareActiveKindergartens(centerIds, lat, lng)
     }
+
+    @GetMapping("/{id}/reviews")
+    fun getReviews(
+        @PathVariable id: UUID,
+        @RequestParam(required = false, defaultValue = "0") page: Int,
+        @RequestParam(required = false, defaultValue = "10") size: Int,
+    ): PageResponse<CenterReviewResponse> = centerReviewService.getReviews(id, page, size)
 
     @GetMapping("/map-markers")
     fun getMapMarkers(

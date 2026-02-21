@@ -1,6 +1,7 @@
 package com.sotti.kindergarten.controller
 
 import com.sotti.kindergarten.repository.RegionRepository
+import com.sotti.kindergarten.service.CenterReviewService
 import com.sotti.kindergarten.service.DataSyncService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -9,12 +10,14 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import java.util.UUID
 
 @RestController
 @RequestMapping("/api/v1/admin")
 class AdminController(
     private val dataSyncService: DataSyncService,
     private val regionRepository: RegionRepository,
+    private val centerReviewService: CenterReviewService,
 ) {
     @PostMapping("/sync")
     fun triggerSync(
@@ -54,17 +57,30 @@ class AdminController(
         @PathVariable apiType: String,
         @RequestParam(required = false) sidoCode: String?,
         @RequestParam(required = false) sggCode: String?,
-    ): ResponseEntity<Map<String, Any>> {
-        val count =
-            dataSyncService.syncByApiType(apiType, sidoCode, sggCode)
+    ): ResponseEntity<Map<String, String>> {
+        dataSyncService.syncByApiType(apiType, sidoCode, sggCode)
         return ResponseEntity.ok(
             mapOf(
-                "message" to "$apiType sync completed",
-                "count" to count,
+                "message" to
+                    "$apiType sync started (running in background)",
             ),
         )
     }
 
     @GetMapping("/sync/api/types")
     fun getAvailableApiTypes(): ResponseEntity<List<String>> = ResponseEntity.ok(DataSyncService.AVAILABLE_API_TYPES)
+
+    @PostMapping("/reviews/sync")
+    fun triggerReviewSync(): ResponseEntity<Map<String, String>> {
+        centerReviewService.syncAllReviews()
+        return ResponseEntity.ok(mapOf("message" to "Review sync completed"))
+    }
+
+    @PostMapping("/reviews/sync/{centerId}")
+    fun triggerReviewSyncForCenter(
+        @PathVariable centerId: UUID,
+    ): ResponseEntity<Map<String, String>> {
+        centerReviewService.syncReviews(centerId)
+        return ResponseEntity.ok(mapOf("message" to "Review sync completed for center=$centerId"))
+    }
 }

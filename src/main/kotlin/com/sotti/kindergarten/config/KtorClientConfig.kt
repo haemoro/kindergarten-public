@@ -2,6 +2,7 @@ package com.sotti.kindergarten.config
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.sotti.kindergarten.client.KindergartenApiProperties
+import com.sotti.kindergarten.client.NaverSearchProperties
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -15,7 +16,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
 @Configuration
-@EnableConfigurationProperties(KindergartenApiProperties::class)
+@EnableConfigurationProperties(KindergartenApiProperties::class, NaverSearchProperties::class)
 class KtorClientConfig {
     @Bean
     fun httpClient(): HttpClient =
