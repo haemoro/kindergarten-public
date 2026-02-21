@@ -79,6 +79,7 @@ class AppKindergartenController(
         @RequestParam(required = false) type: String?,
         @RequestParam(required = false) sidoCode: String?,
         @RequestParam(required = false) sggCode: String?,
+        @RequestParam(required = false) limit: Int?,
     ): List<MapMarkerResponse> =
         centerService.getMapMarkers(
             lat = lat,
@@ -87,5 +88,6 @@ class AppKindergartenController(
             establishType = type,
             sidoCode = sidoCode,
             sggCode = sggCode,
+            limit = limit,
         )
 }

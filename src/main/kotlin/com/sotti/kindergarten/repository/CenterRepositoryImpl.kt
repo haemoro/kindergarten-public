@@ -135,8 +135,10 @@ class CenterRepositoryImpl(
         lng: Double,
         radiusMeters: Double,
         filter: CenterSearchFilter,
+        limit: Int?,
     ): List<MapMarkerProjection> {
         val conditions = buildNativeConditions(filter)
+        val limitClause = if (limit != null) "LIMIT $limit" else ""
 
         val sql =
             """
@@ -147,6 +149,7 @@ class CenterRepositoryImpl(
             WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
             $conditions
             ORDER BY ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC
+            $limitClause
             """.trimIndent()
 
         val query =

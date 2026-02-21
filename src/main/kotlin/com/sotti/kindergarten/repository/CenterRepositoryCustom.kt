@@ -41,6 +41,7 @@ interface CenterRepositoryCustom {
         lng: Double,
         radiusMeters: Double,
         filter: CenterSearchFilter,
+        limit: Int? = null,
     ): List<MapMarkerProjection>
 }
 
