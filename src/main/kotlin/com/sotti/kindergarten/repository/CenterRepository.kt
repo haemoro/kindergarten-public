@@ -37,6 +37,8 @@ interface CenterRepository :
 
     fun countByIsActiveTrue(): Long
 
+    fun findAllByAddressStartingWith(addressPrefix: String): List<Center>
+
     fun countByEstablishType(establishType: String): Long
 
     @Modifying

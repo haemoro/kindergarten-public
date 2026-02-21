@@ -42,17 +42,36 @@ class NaverSearchClient(
         query: String,
         display: Int,
         sort: String,
-    ): NaverSearchResponse =
-        retryOnFailure {
-            httpClient
-                .get(url) {
-                    header("X-Naver-Client-Id", properties.clientId)
-                    header("X-Naver-Client-Secret", properties.clientSecret)
-                    parameter("query", query)
-                    parameter("display", display)
-                    parameter("sort", sort)
-                }.body()
+    ): NaverSearchResponse {
+        val type = if (url.contains("blog")) "blog" else "cafe"
+        logger.debug("[Naver {}] query='{}', display={}, sort={}", type, query, display, sort)
+
+        val response =
+            retryOnFailure<NaverSearchResponse> {
+                httpClient
+                    .get(url) {
+                        header("X-Naver-Client-Id", properties.clientId)
+                        header("X-Naver-Client-Secret", properties.clientSecret)
+                        parameter("query", query)
+                        parameter("display", display)
+                        parameter("sort", sort)
+                    }.body()
+            }
+
+        logger.debug("[Naver {}] total={}, items={}", type, response.total, response.items.size)
+        response.items.forEachIndexed { i, item ->
+            logger.debug(
+                "[Naver {}] [{}] title='{}', link='{}', postdate='{}'",
+                type,
+                i + 1,
+                item.title.replace(Regex("<[^>]*>"), ""),
+                item.link,
+                item.postdate ?: "N/A",
+            )
         }
+
+        return response
+    }
 
     private suspend fun <T> retryOnFailure(block: suspend () -> T): T {
         var lastException: Exception? = null

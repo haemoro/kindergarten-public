@@ -76,6 +76,14 @@ class AdminController(
         return ResponseEntity.ok(mapOf("message" to "Review sync completed"))
     }
 
+    @PostMapping("/reviews/sync/region")
+    fun triggerReviewSyncByRegion(
+        @RequestParam sidoName: String,
+    ): ResponseEntity<Map<String, String>> {
+        centerReviewService.syncReviewsByRegion(sidoName)
+        return ResponseEntity.ok(mapOf("message" to "Review sync completed for region=$sidoName"))
+    }
+
     @PostMapping("/reviews/sync/{centerId}")
     fun triggerReviewSyncForCenter(
         @PathVariable centerId: UUID,
