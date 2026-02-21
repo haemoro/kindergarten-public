@@ -27,6 +27,8 @@ import com.sotti.kindergarten.dto.app.EducationSection
 import com.sotti.kindergarten.dto.app.FacilitySection
 import com.sotti.kindergarten.dto.app.MapMarkerResponse
 import com.sotti.kindergarten.dto.app.MealSection
+import com.sotti.kindergarten.dto.app.InsuranceResponse
+import com.sotti.kindergarten.dto.app.SafetyEducationResponse
 import com.sotti.kindergarten.dto.app.SafetySection
 import com.sotti.kindergarten.dto.app.TeacherSection
 import com.sotti.kindergarten.entity.Center
@@ -358,6 +360,29 @@ class CenterService(
             cctvTotal = center.safetyCheck?.cctvTotal,
             schoolSafetyEnrolled = center.mutualAid?.schoolSafetyEnrolled,
             educationFacilityEnrolled = center.mutualAid?.educationFacilityEnrolled,
+            safetyEducations = center.safetyEducations.takeIf { it.isNotEmpty() }?.map {
+                SafetyEducationResponse(
+                    semester = it.semester,
+                    lifeSafety = it.lifeSafety,
+                    trafficSafety = it.trafficSafety,
+                    violencePrevention = it.violencePrevention,
+                    drugPrevention = it.drugPrevention,
+                    cyberPrevention = it.cyberPrevention,
+                    disasterSafety = it.disasterSafety,
+                    occupationalSafety = it.occupationalSafety,
+                    firstAid = it.firstAid,
+                )
+            },
+            insurances = center.insurances.takeIf { it.isNotEmpty() }?.map {
+                val company = listOfNotNull(it.company1, it.company2, it.company3)
+                    .joinToString(", ").ifEmpty { null }
+                InsuranceResponse(
+                    insuranceName = it.insuranceName,
+                    targetYn = it.targetYn,
+                    enrolledYn = it.enrolledYn,
+                    company = company,
+                )
+            },
         )
     }
 

@@ -58,6 +58,27 @@ data class SafetySection(
     val cctvTotal: Int?,
     val schoolSafetyEnrolled: String?,
     val educationFacilityEnrolled: String?,
+    val safetyEducations: List<SafetyEducationResponse>?,
+    val insurances: List<InsuranceResponse>?,
+)
+
+data class SafetyEducationResponse(
+    val semester: String?,
+    val lifeSafety: String?,
+    val trafficSafety: String?,
+    val violencePrevention: String?,
+    val drugPrevention: String?,
+    val cyberPrevention: String?,
+    val disasterSafety: String?,
+    val occupationalSafety: String?,
+    val firstAid: String?,
+)
+
+data class InsuranceResponse(
+    val insuranceName: String?,
+    val targetYn: String?,
+    val enrolledYn: String?,
+    val company: String?,
 )
 
 data class FacilitySection(
