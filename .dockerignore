@@ -1,0 +1,12 @@
+.gradle
+build/
+.git
+.gitignore
+README.md
+.env
+.env.*
+*.md
+.idea
+.vscode
+deploy-nas.sh
+docker-compose.nas.yml

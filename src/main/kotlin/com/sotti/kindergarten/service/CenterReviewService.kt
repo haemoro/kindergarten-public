@@ -62,6 +62,7 @@ class CenterReviewService(
                 "소독",
                 "인테리어",
                 "야근",
+                "보일러",
             )
     }
 

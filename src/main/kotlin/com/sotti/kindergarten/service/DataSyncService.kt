@@ -43,11 +43,14 @@ import com.sotti.kindergarten.repository.CenterTeacherRepository
 import com.sotti.kindergarten.repository.CenterYearOfWorkRepository
 import com.sotti.kindergarten.repository.RegionRepository
 import com.sotti.kindergarten.util.DataHashUtils
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.locationtech.jts.geom.Coordinate
@@ -81,10 +84,11 @@ class DataSyncService(
 ) {
     private val logger = LoggerFactory.getLogger(DataSyncService::class.java)
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
+    private val syncScope = CoroutineScope(Dispatchers.IO)
 
     companion object {
         private const val MAX_RETRY_ATTEMPTS = 3
-        private const val PARALLEL_REGION_COUNT = 5
+        private const val PARALLEL_REGION_COUNT = 3
 
         val AVAILABLE_API_TYPES =
             listOf(
@@ -125,49 +129,55 @@ class DataSyncService(
 
         val totalItems =
             runBlocking(Dispatchers.IO) {
-                val semaphore = Semaphore(PARALLEL_REGION_COUNT)
-                val results =
-                    regions.map { region ->
-                        async {
-                            semaphore.withPermit {
-                                try {
-                                    val regionStart = System.currentTimeMillis()
-                                    val count =
-                                        doSyncRegion(
-                                            region.sidoCode,
-                                            region.sggCode,
+                supervisorScope {
+                    val semaphore = Semaphore(PARALLEL_REGION_COUNT)
+                    val results =
+                        regions.map { region ->
+                            async {
+                                semaphore.withPermit {
+                                    try {
+                                        val regionStart =
+                                            System.currentTimeMillis()
+                                        val count =
+                                            doSyncRegion(
+                                                region.sidoCode,
+                                                region.sggCode,
+                                            )
+                                        val elapsed =
+                                            System.currentTimeMillis() -
+                                                regionStart
+                                        val done =
+                                            completedCount.incrementAndGet()
+                                        logger.info(
+                                            "[{}/{}] {} {} 완료 " +
+                                                "({}건, {}ms)",
+                                            done,
+                                            totalRegions,
+                                            region.sidoName,
+                                            region.sggName,
+                                            count,
+                                            elapsed,
                                         )
-                                    val elapsed =
-                                        System.currentTimeMillis() - regionStart
-                                    val done = completedCount.incrementAndGet()
-                                    logger.info(
-                                        "[{}/{}] {} {} 완료 " +
-                                            "({}건, {}ms)",
-                                        done,
-                                        totalRegions,
-                                        region.sidoName,
-                                        region.sggName,
-                                        count,
-                                        elapsed,
-                                    )
-                                    count
-                                } catch (e: Exception) {
-                                    val done = completedCount.incrementAndGet()
-                                    logger.error(
-                                        "[{}/{}] {} {} 실패: {}",
-                                        done,
-                                        totalRegions,
-                                        region.sidoName,
-                                        region.sggName,
-                                        e.message,
-                                        e,
-                                    )
-                                    0
+                                        count
+                                    } catch (e: Exception) {
+                                        val done =
+                                            completedCount.incrementAndGet()
+                                        logger.error(
+                                            "[{}/{}] {} {} 실패: {}",
+                                            done,
+                                            totalRegions,
+                                            region.sidoName,
+                                            region.sggName,
+                                            e.message,
+                                            e,
+                                        )
+                                        0
+                                    }
                                 }
                             }
                         }
-                    }
-                results.awaitAll().sum()
+                    results.awaitAll().sum()
+                }
             }
 
         val duration = Duration.between(startTime, LocalDateTime.now())
@@ -194,7 +204,7 @@ class DataSyncService(
         apiType: String,
         sidoCode: String? = null,
         sggCode: String? = null,
-    ): Int {
+    ) {
         val normalizedType = apiType.lowercase()
         require(
             normalizedType in AVAILABLE_API_TYPES.map { it.lowercase() },
@@ -204,93 +214,102 @@ class DataSyncService(
         }
 
         if (sidoCode != null && sggCode != null) {
-            logger.info(
-                "=== Sync [$apiType] started: $sidoCode-$sggCode ===",
-            )
-            val startTime = LocalDateTime.now()
-            val count =
-                runBlocking {
+            syncScope.launch {
+                logger.info(
+                    "=== Sync [$apiType] started: " +
+                        "$sidoCode-$sggCode ===",
+                )
+                val startTime = LocalDateTime.now()
+                val count =
                     syncOneType(normalizedType, sidoCode, sggCode)
-                }
-            val duration = Duration.between(startTime, LocalDateTime.now())
-            logger.info(
-                "=== Sync [$apiType] finished: $count items, " +
-                    "${duration.toMinutes()}m " +
-                    "${duration.seconds % 60}s ===",
-            )
-            return count
+                val duration =
+                    Duration.between(startTime, LocalDateTime.now())
+                logger.info(
+                    "=== Sync [$apiType] finished: $count items, " +
+                        "${duration.toMinutes()}m " +
+                        "${duration.seconds % 60}s ===",
+                )
+            }
+            return
         }
 
         val regions = regionRepository.findAll()
         val totalRegions = regions.size
-        val completedCount = AtomicInteger(0)
-        val startTime = LocalDateTime.now()
 
-        logger.info(
-            "=== Sync [$apiType] started: $totalRegions regions ===",
-        )
+        syncScope.launch {
+            val completedCount = AtomicInteger(0)
+            val startTime = LocalDateTime.now()
 
-        val totalItems =
-            runBlocking(Dispatchers.IO) {
-                val semaphore = Semaphore(PARALLEL_REGION_COUNT)
-                val results =
-                    regions.map { region ->
-                        async {
-                            semaphore.withPermit {
-                                try {
-                                    val regionStart =
-                                        System.currentTimeMillis()
-                                    val count =
-                                        syncOneType(
-                                            normalizedType,
-                                            region.sidoCode,
-                                            region.sggCode,
+            logger.info(
+                "=== Sync [$apiType] started: " +
+                    "$totalRegions regions ===",
+            )
+
+            val totalItems =
+                supervisorScope {
+                    val semaphore = Semaphore(PARALLEL_REGION_COUNT)
+                    val results =
+                        regions.map { region ->
+                            async {
+                                semaphore.withPermit {
+                                    try {
+                                        val regionStart =
+                                            System.currentTimeMillis()
+                                        val count =
+                                            syncOneType(
+                                                normalizedType,
+                                                region.sidoCode,
+                                                region.sggCode,
+                                            )
+                                        val elapsed =
+                                            System.currentTimeMillis() -
+                                                regionStart
+                                        val done =
+                                            completedCount
+                                                .incrementAndGet()
+                                        logger.info(
+                                            "[{}/{}] {} {} [{}] " +
+                                                "완료 ({}건, {}ms)",
+                                            done,
+                                            totalRegions,
+                                            region.sidoName,
+                                            region.sggName,
+                                            apiType,
+                                            count,
+                                            elapsed,
                                         )
-                                    val elapsed =
-                                        System.currentTimeMillis() -
-                                            regionStart
-                                    val done =
-                                        completedCount.incrementAndGet()
-                                    logger.info(
-                                        "[{}/{}] {} {} [{}] " +
-                                            "완료 ({}건, {}ms)",
-                                        done,
-                                        totalRegions,
-                                        region.sidoName,
-                                        region.sggName,
-                                        apiType,
-                                        count,
-                                        elapsed,
-                                    )
-                                    count
-                                } catch (e: Exception) {
-                                    val done =
-                                        completedCount.incrementAndGet()
-                                    logger.error(
-                                        "[{}/{}] {} {} [{}] 실패: {}",
-                                        done,
-                                        totalRegions,
-                                        region.sidoName,
-                                        region.sggName,
-                                        apiType,
-                                        e.message,
-                                        e,
-                                    )
-                                    0
+                                        count
+                                    } catch (e: Exception) {
+                                        val done =
+                                            completedCount
+                                                .incrementAndGet()
+                                        logger.error(
+                                            "[{}/{}] {} {} [{}] " +
+                                                "실패: {}",
+                                            done,
+                                            totalRegions,
+                                            region.sidoName,
+                                            region.sggName,
+                                            apiType,
+                                            e.message,
+                                            e,
+                                        )
+                                        0
+                                    }
                                 }
                             }
                         }
-                    }
-                results.awaitAll().sum()
-            }
+                    results.awaitAll().sum()
+                }
 
-        val duration = Duration.between(startTime, LocalDateTime.now())
-        logger.info(
-            "=== Sync [$apiType] finished: $totalItems items, " +
-                "${duration.toMinutes()}m " +
-                "${duration.seconds % 60}s ===",
-        )
-        return totalItems
+            val duration =
+                Duration.between(startTime, LocalDateTime.now())
+            logger.info(
+                "=== Sync [$apiType] finished: $totalItems items, " +
+                    "${duration.toMinutes()}m " +
+                    "${duration.seconds % 60}s ===",
+            )
+        }
     }
 
     fun syncRegion(

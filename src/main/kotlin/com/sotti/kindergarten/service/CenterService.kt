@@ -32,6 +32,8 @@ import com.sotti.kindergarten.dto.app.SafetyEducationResponse
 import com.sotti.kindergarten.dto.app.SafetySection
 import com.sotti.kindergarten.dto.app.TeacherSection
 import com.sotti.kindergarten.entity.Center
+import com.sotti.kindergarten.entity.CenterInsurance
+import com.sotti.kindergarten.entity.CenterSafetyEducation
 import com.sotti.kindergarten.exception.BusinessException
 import com.sotti.kindergarten.exception.CenterNotFoundException
 import com.sotti.kindergarten.exception.ErrorCode
@@ -353,43 +355,80 @@ class CenterService(
             waterQualityCheck = center.environment?.groundwaterTestResult,
             dustMeasurement = center.environment?.dustCheckResult,
             lightMeasurement = center.environment?.lightCheckResult,
-            fireInsuranceCheck = center.safetyCheck?.fireSafetyYn,
-            gasCheck = center.safetyCheck?.gasCheckYn,
-            electricCheck = center.safetyCheck?.electricCheckYn,
-            playgroundCheck = center.safetyCheck?.playgroundCheckYn,
+            fireInsuranceCheck = normalizeCheckYn(center.safetyCheck?.fireSafetyYn),
+            gasCheck = normalizeCheckYn(center.safetyCheck?.gasCheckYn),
+            electricCheck = normalizeCheckYn(center.safetyCheck?.electricCheckYn),
+            playgroundCheck = normalizeCheckYn(center.safetyCheck?.playgroundCheckYn),
             cctvInstalled = center.safetyCheck?.cctvInstalled,
             cctvTotal = center.safetyCheck?.cctvTotal,
             schoolSafetyEnrolled = center.mutualAid?.schoolSafetyEnrolled,
             educationFacilityEnrolled = center.mutualAid?.educationFacilityEnrolled,
             safetyEducations =
-                center.safetyEducations.takeIf { it.isNotEmpty() }?.map {
-                    SafetyEducationResponse(
-                        semester = it.semester,
-                        lifeSafety = it.lifeSafety,
-                        trafficSafety = it.trafficSafety,
-                        violencePrevention = it.violencePrevention,
-                        drugPrevention = it.drugPrevention,
-                        cyberPrevention = it.cyberPrevention,
-                        disasterSafety = it.disasterSafety,
-                        occupationalSafety = it.occupationalSafety,
-                        firstAid = it.firstAid,
-                    )
-                },
+                buildSafetyEducations(center.safetyEducations),
             insurances =
-                center.insurances.takeIf { it.isNotEmpty() }?.map {
-                    val company =
-                        listOfNotNull(it.company1, it.company2, it.company3)
-                            .joinToString(", ")
-                            .ifEmpty { null }
-                    InsuranceResponse(
-                        insuranceName = it.insuranceName,
-                        targetYn = it.targetYn,
-                        enrolledYn = it.enrolledYn,
-                        company = company,
-                    )
-                },
+                buildInsurances(center.insurances),
         )
     }
+
+    private fun normalizeCheckYn(value: String?): String =
+        when (value?.uppercase()) {
+            "Y" -> "점검완료"
+            "N" -> "미점검"
+            else -> "-"
+        }
+
+    private fun buildSafetyEducations(educations: List<CenterSafetyEducation>): List<SafetyEducationResponse>? =
+        educations
+            .filter { edu ->
+                val allFields =
+                    listOf(
+                        edu.lifeSafety,
+                        edu.trafficSafety,
+                        edu.violencePrevention,
+                        edu.drugPrevention,
+                        edu.cyberPrevention,
+                        edu.disasterSafety,
+                        edu.occupationalSafety,
+                        edu.firstAid,
+                    )
+                !(edu.semester == null && allFields.all { it == "0" || it == null })
+            }.distinctBy { it.semester }
+            .takeIf { it.isNotEmpty() }
+            ?.map { edu ->
+                SafetyEducationResponse(
+                    semester =
+                        when (edu.semester) {
+                            "1" -> "1학기"
+                            "2" -> "2학기"
+                            else -> edu.semester
+                        },
+                    lifeSafety = edu.lifeSafety?.toIntOrNull() ?: 0,
+                    trafficSafety = edu.trafficSafety?.toIntOrNull() ?: 0,
+                    violencePrevention = edu.violencePrevention?.toIntOrNull() ?: 0,
+                    drugPrevention = edu.drugPrevention?.toIntOrNull() ?: 0,
+                    cyberPrevention = edu.cyberPrevention?.toIntOrNull() ?: 0,
+                    disasterSafety = edu.disasterSafety?.toIntOrNull() ?: 0,
+                    occupationalSafety = edu.occupationalSafety?.toIntOrNull() ?: 0,
+                    firstAid = edu.firstAid?.toIntOrNull() ?: 0,
+                )
+            }
+
+    private fun buildInsurances(insurances: List<CenterInsurance>): List<InsuranceResponse>? =
+        insurances
+            .distinctBy { it.insuranceName }
+            .takeIf { it.isNotEmpty() }
+            ?.map {
+                val company =
+                    listOfNotNull(it.company1, it.company2, it.company3)
+                        .joinToString(", ")
+                        .ifEmpty { null }
+                InsuranceResponse(
+                    insuranceName = it.insuranceName,
+                    isTarget = it.targetYn == "Y",
+                    isEnrolled = it.enrolledYn == "Y",
+                    company = company,
+                )
+            }
 
     private fun buildFacilitySection(center: Center): FacilitySection? {
         val hasBuilding = center.building != null

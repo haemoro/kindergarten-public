@@ -64,20 +64,20 @@ data class SafetySection(
 
 data class SafetyEducationResponse(
     val semester: String?,
-    val lifeSafety: String?,
-    val trafficSafety: String?,
-    val violencePrevention: String?,
-    val drugPrevention: String?,
-    val cyberPrevention: String?,
-    val disasterSafety: String?,
-    val occupationalSafety: String?,
-    val firstAid: String?,
+    val lifeSafety: Int,
+    val trafficSafety: Int,
+    val violencePrevention: Int,
+    val drugPrevention: Int,
+    val cyberPrevention: Int,
+    val disasterSafety: Int,
+    val occupationalSafety: Int,
+    val firstAid: Int,
 )
 
 data class InsuranceResponse(
     val insuranceName: String?,
-    val targetYn: String?,
-    val enrolledYn: String?,
+    val isTarget: Boolean,
+    val isEnrolled: Boolean,
     val company: String?,
 )
 
