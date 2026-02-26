@@ -30,6 +30,8 @@ import com.sotti.kindergarten.exception.ErrorCode
 import com.sotti.kindergarten.repository.CenterRepository
 import com.sotti.kindergarten.repository.CrawlHistoryRepository
 import org.slf4j.LoggerFactory
+import org.springframework.cache.annotation.CacheEvict
+import org.springframework.cache.annotation.Caching
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -83,6 +85,12 @@ class AdminService(
     }
 
     @Transactional
+    @Caching(
+        evict = [
+            CacheEvict("centerDetail", key = "#id"),
+            CacheEvict("appCenterDetail", key = "#id"),
+        ],
+    )
     fun updateKindergarten(
         id: UUID,
         request: AdminKindergartenUpdateRequest,

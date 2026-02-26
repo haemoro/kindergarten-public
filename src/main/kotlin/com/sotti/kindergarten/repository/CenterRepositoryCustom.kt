@@ -13,6 +13,24 @@ data class CenterSearchFilter(
     val activeOnly: Boolean = false,
 )
 
+data class SearchListProjection(
+    val id: UUID,
+    val name: String,
+    val establishType: String?,
+    val address: String?,
+    val phone: String?,
+    val lat: Double?,
+    val lng: Double?,
+    val distanceKm: Double?,
+    val capacity: Int?,
+    val currentEnrollment: Int?,
+    val totalClassCount: Int?,
+    val mealProvided: Boolean,
+    val busAvailable: Boolean,
+    val extendedCare: Boolean,
+    val totalCount: Long,
+)
+
 interface CenterRepositoryCustom {
     fun findNearby(
         lat: Double,
@@ -21,12 +39,14 @@ interface CenterRepositoryCustom {
         filter: CenterSearchFilter,
         pageable: Pageable,
         sortType: String? = null,
-    ): Page<Center>
+    ): Page<SearchListProjection>
 
     fun findAllWithFilters(
         filter: CenterSearchFilter,
         pageable: Pageable,
-    ): Page<Center>
+        lat: Double? = null,
+        lng: Double? = null,
+    ): Page<SearchListProjection>
 
     fun findAllWithAdminFilters(
         keyword: String?,
@@ -43,6 +63,12 @@ interface CenterRepositoryCustom {
         filter: CenterSearchFilter,
         limit: Int? = null,
     ): List<MapMarkerProjection>
+
+    fun findCompareData(
+        ids: List<UUID>,
+        lat: Double?,
+        lng: Double?,
+    ): List<CompareProjection>
 }
 
 data class MapMarkerProjection(
@@ -53,4 +79,24 @@ data class MapMarkerProjection(
     val phone: String?,
     val lat: Double,
     val lng: Double,
+)
+
+data class CompareProjection(
+    val id: UUID,
+    val name: String,
+    val establishType: String?,
+    val address: String?,
+    val distanceKm: Double?,
+    val capacity: Int?,
+    val currentEnrollment: Int?,
+    val teacherCount: Int?,
+    val classCount: Int?,
+    val mealProvided: Boolean,
+    val busAvailable: Boolean,
+    val extendedCare: Boolean,
+    val buildingArea: Double?,
+    val classroomArea: Double?,
+    val cctvInstalled: Boolean,
+    val cctvTotal: Int?,
+    val isActive: Boolean,
 )

@@ -18,10 +18,15 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: false
+    open-in-view: false
     properties:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_batch_fetch_size: 50
+        query:
+          plan_cache_max_size: 256
+          in_clause_parameter_padding: true
   sql:
     init:
       mode: always

@@ -31,9 +31,63 @@ class CenterRepositoryImpl(
     override fun findAllWithFilters(
         filter: CenterSearchFilter,
         pageable: Pageable,
-    ): Page<Center> {
-        val builder = BooleanBuilder().applyFilter(filter)
-        return executePagedQuery(builder, pageable)
+        lat: Double?,
+        lng: Double?,
+    ): Page<SearchListProjection> {
+        val conditions = buildNativeConditions(filter)
+        val hasLocation = lat != null && lng != null
+        val isDistanceSort = pageable.sort.firstOrNull()?.property == "distance"
+        val orderBySql =
+            if (hasLocation && isDistanceSort) {
+                "ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography)"
+            } else {
+                getNativeOrderByForFilter(pageable)
+            }
+        val distanceExpr =
+            if (hasLocation) {
+                "ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) / 1000.0"
+            } else {
+                "NULL::double precision"
+            }
+
+        val sql =
+            """
+            SELECT c.id, c.name, c.establish_type, c.address, c.phone,
+                   ST_Y(c.location::geometry) as lat,
+                   ST_X(c.location::geometry) as lng,
+                   $distanceExpr as distance_km,
+                   c.total_capacity,
+                   (COALESCE(c.enrollment3, 0) + COALESCE(c.enrollment4, 0) + COALESCE(c.enrollment5, 0)
+                       + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) as current_enrollment,
+                   (COALESCE(c.class_count3, 0) + COALESCE(c.class_count4, 0) + COALESCE(c.class_count5, 0)
+                       + COALESCE(c.mixed_class_count, 0) + COALESCE(c.special_class_count, 0)) as total_class_count,
+                   (m.meal_operation_type IS NOT NULL) as meal_provided,
+                   (UPPER(b.bus_operating) = 'Y') as bus_available,
+                   (a.id IS NOT NULL) as extended_care,
+                   COUNT(*) OVER() as total_count
+            FROM center c
+            LEFT JOIN center_meal m ON m.center_id = c.id
+            LEFT JOIN center_bus b ON b.center_id = c.id
+            LEFT JOIN center_after_school a ON a.center_id = c.id
+            WHERE 1=1
+            $conditions
+            ORDER BY $orderBySql
+            """.trimIndent()
+
+        val query =
+            entityManager
+                .createNativeQuery(sql)
+                .bindFilterParams(filter)
+                .apply {
+                    if (hasLocation) {
+                        setParameter("lat", lat)
+                        setParameter("lng", lng)
+                    }
+                    firstResult = pageable.offset.toInt()
+                    maxResults = pageable.pageSize
+                }
+
+        return mapSearchResults(query, pageable)
     }
 
     override fun findNearby(
@@ -43,21 +97,37 @@ class CenterRepositoryImpl(
         filter: CenterSearchFilter,
         pageable: Pageable,
         sortType: String?,
-    ): Page<Center> {
+    ): Page<SearchListProjection> {
         val conditions = buildNativeConditions(filter)
         val orderBySql = getNativeOrderBy(sortType)
 
-        val idSql =
+        val sql =
             """
-            SELECT c.id FROM center c
+            SELECT c.id, c.name, c.establish_type, c.address, c.phone,
+                   ST_Y(c.location::geometry) as lat,
+                   ST_X(c.location::geometry) as lng,
+                   ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) / 1000.0 as distance_km,
+                   c.total_capacity,
+                   (COALESCE(c.enrollment3, 0) + COALESCE(c.enrollment4, 0) + COALESCE(c.enrollment5, 0)
+                       + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) as current_enrollment,
+                   (COALESCE(c.class_count3, 0) + COALESCE(c.class_count4, 0) + COALESCE(c.class_count5, 0)
+                       + COALESCE(c.mixed_class_count, 0) + COALESCE(c.special_class_count, 0)) as total_class_count,
+                   (m.meal_operation_type IS NOT NULL) as meal_provided,
+                   (UPPER(b.bus_operating) = 'Y') as bus_available,
+                   (a.id IS NOT NULL) as extended_care,
+                   COUNT(*) OVER() as total_count
+            FROM center c
+            LEFT JOIN center_meal m ON m.center_id = c.id
+            LEFT JOIN center_bus b ON b.center_id = c.id
+            LEFT JOIN center_after_school a ON a.center_id = c.id
             WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
             $conditions
             ORDER BY $orderBySql
             """.trimIndent()
 
-        val idQuery =
+        val query =
             entityManager
-                .createNativeQuery(idSql)
+                .createNativeQuery(sql)
                 .bindGeoParams(lat, lng, radiusMeters)
                 .bindFilterParams(filter)
                 .apply {
@@ -65,39 +135,7 @@ class CenterRepositoryImpl(
                     maxResults = pageable.pageSize
                 }
 
-        @Suppress("UNCHECKED_CAST")
-        val ids = idQuery.resultList as List<UUID>
-
-        if (ids.isEmpty()) {
-            return PageableExecutionUtils.getPage(emptyList(), pageable) { 0L }
-        }
-
-        val idOrder = ids.withIndex().associate { (index, id) -> id to index }
-        val content =
-            jpaQueryFactory
-                .selectFrom(qCenter)
-                .fetchAllOneToOne()
-                .where(qCenter.id.`in`(ids))
-                .fetch()
-                .sortedBy { idOrder[it.id] }
-
-        val countSql =
-            """
-            SELECT COUNT(*) FROM center c
-            WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
-            $conditions
-            """.trimIndent()
-
-        val countQuery = {
-            val cq =
-                entityManager
-                    .createNativeQuery(countSql)
-                    .bindGeoParams(lat, lng, radiusMeters)
-                    .bindFilterParams(filter)
-            (cq.singleResult as Number).toLong()
-        }
-
-        return PageableExecutionUtils.getPage(content, pageable, countQuery)
+        return mapSearchResults(query, pageable)
     }
 
     override fun findAllWithAdminFilters(
@@ -127,7 +165,7 @@ class CenterRepositoryImpl(
             builder.and(qCenter.isActive.eq(it))
         }
 
-        return executePagedQuery(builder, pageable)
+        return executeAdminPagedQuery(builder, pageable)
     }
 
     override fun findMapMarkers(
@@ -148,7 +186,7 @@ class CenterRepositoryImpl(
             FROM center c
             WHERE ST_DWithin(c.location, ST_MakePoint(:lng, :lat)::geography, :radiusMeters)
             $conditions
-            ORDER BY ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC
+            ORDER BY c.location::geometry <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geometry
             $limitClause
             """.trimIndent()
 
@@ -174,15 +212,163 @@ class CenterRepositoryImpl(
         }
     }
 
-    // --- Querydsl helpers ---
+    override fun findCompareData(
+        ids: List<UUID>,
+        lat: Double?,
+        lng: Double?,
+    ): List<CompareProjection> {
+        val hasLocation = lat != null && lng != null
 
-    private fun BooleanBuilder.applyFilter(filter: CenterSearchFilter): BooleanBuilder {
-        if (filter.activeOnly) and(qCenter.isActive.isTrue)
-        filter.establishTypes?.let { and(qCenter.establishType.`in`(it)) }
-        filter.name?.let { and(qCenter.name.contains(it).or(qCenter.address.contains(it))) }
-        filter.sidoName?.let { and(qCenter.address.containsIgnoreCase(it)) }
-        filter.sggName?.let { and(qCenter.address.containsIgnoreCase(it)) }
-        return this
+        val distanceSelect =
+            if (hasLocation) {
+                "ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) / 1000.0 as distance_km"
+            } else {
+                "NULL as distance_km"
+            }
+
+        val sql =
+            """
+            SELECT
+                c.id,
+                c.name,
+                c.establish_type,
+                c.address,
+                $distanceSelect,
+                c.total_capacity,
+                (COALESCE(c.enrollment3, 0) + COALESCE(c.enrollment4, 0) + COALESCE(c.enrollment5, 0)
+                    + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) as current_enrollment,
+                (COALESCE(t.director_count, 0) + COALESCE(t.vice_director_count, 0)
+                    + COALESCE(t.master_teacher_count, 0) + COALESCE(t.lead_teacher_count, 0)
+                    + COALESCE(t.general_teacher_count, 0) + COALESCE(t.special_teacher_count, 0)) as teacher_count,
+                (COALESCE(c.class_count3, 0) + COALESCE(c.class_count4, 0) + COALESCE(c.class_count5, 0)
+                    + COALESCE(c.mixed_class_count, 0) + COALESCE(c.special_class_count, 0)) as class_count,
+                (m.meal_operation_type IS NOT NULL) as meal_provided,
+                (UPPER(b2.bus_operating) = 'Y') as bus_available,
+                (a.id IS NOT NULL) as extended_care,
+                bl.building_area,
+                cl.classroom_area,
+                (UPPER(sc.cctv_installed) = 'Y') as cctv_installed,
+                sc.cctv_total,
+                c.is_active
+            FROM center c
+            LEFT JOIN center_teacher t ON t.center_id = c.id
+            LEFT JOIN center_meal m ON m.center_id = c.id
+            LEFT JOIN center_bus b2 ON b2.center_id = c.id
+            LEFT JOIN center_after_school a ON a.center_id = c.id
+            LEFT JOIN center_building bl ON bl.center_id = c.id
+            LEFT JOIN center_classroom cl ON cl.center_id = c.id
+            LEFT JOIN center_safety_check sc ON sc.center_id = c.id
+            WHERE c.id IN (:ids)
+            """.trimIndent()
+
+        val query = entityManager.createNativeQuery(sql)
+        query.setParameter("ids", ids)
+        if (hasLocation) {
+            query.setParameter("lat", lat)
+            query.setParameter("lng", lng)
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        val results = query.resultList as List<Array<Any?>>
+
+        return results.map { row ->
+            val enrollmentSum = (row[6] as? Number)?.toInt()
+            val hasAnyEnrollment =
+                enrollmentSum != null && enrollmentSum > 0
+
+            CompareProjection(
+                id = row[0] as UUID,
+                name = row[1] as String,
+                establishType = row[2] as? String,
+                address = row[3] as? String,
+                distanceKm = (row[4] as? Number)?.toDouble(),
+                capacity = (row[5] as? Number)?.toInt(),
+                currentEnrollment = if (hasAnyEnrollment) enrollmentSum else null,
+                teacherCount = (row[7] as? Number)?.toInt()?.takeIf { it > 0 },
+                classCount = (row[8] as? Number)?.toInt()?.takeIf { it > 0 },
+                mealProvided = row[9] as? Boolean ?: false,
+                busAvailable = row[10] as? Boolean ?: false,
+                extendedCare = row[11] as? Boolean ?: false,
+                buildingArea = (row[12] as? Number)?.toDouble(),
+                classroomArea = (row[13] as? Number)?.toDouble(),
+                cctvInstalled = row[14] as? Boolean ?: false,
+                cctvTotal = (row[15] as? Number)?.toInt(),
+                isActive = row[16] as? Boolean ?: true,
+            )
+        }
+    }
+
+    // --- Shared result mapper ---
+
+    private fun mapSearchResults(
+        query: Query,
+        pageable: Pageable,
+    ): Page<SearchListProjection> {
+        @Suppress("UNCHECKED_CAST")
+        val results = query.resultList as List<Array<Any?>>
+
+        if (results.isEmpty()) {
+            return PageableExecutionUtils.getPage(emptyList(), pageable) { 0L }
+        }
+
+        val totalCount = (results[0][14] as Number).toLong()
+        val content =
+            results.map { row ->
+                val enrollment = (row[9] as? Number)?.toInt()
+                val classCount = (row[10] as? Number)?.toInt()
+                SearchListProjection(
+                    id = row[0] as UUID,
+                    name = row[1] as String,
+                    establishType = row[2] as? String,
+                    address = row[3] as? String,
+                    phone = row[4] as? String,
+                    lat = (row[5] as? Number)?.toDouble(),
+                    lng = (row[6] as? Number)?.toDouble(),
+                    distanceKm = (row[7] as? Number)?.toDouble(),
+                    capacity = (row[8] as? Number)?.toInt(),
+                    currentEnrollment = enrollment?.takeIf { it > 0 },
+                    totalClassCount = classCount?.takeIf { it > 0 },
+                    mealProvided = row[11] as? Boolean ?: false,
+                    busAvailable = row[12] as? Boolean ?: false,
+                    extendedCare = row[13] as? Boolean ?: false,
+                    totalCount = totalCount,
+                )
+            }
+
+        return PageableExecutionUtils.getPage(content, pageable) { totalCount }
+    }
+
+    // --- Admin Querydsl (remains JPA for admin-specific filters) ---
+
+    private fun executeAdminPagedQuery(
+        builder: BooleanBuilder,
+        pageable: Pageable,
+    ): Page<Center> {
+        val orderBy = toOrderSpecifiers(pageable)
+
+        val content =
+            jpaQueryFactory
+                .selectFrom(qCenter)
+                .fetchListRelations()
+                .where(builder)
+                .orderBy(*orderBy)
+                .offset(pageable.offset)
+                .limit(pageable.pageSize.toLong())
+                .fetch()
+
+        if (content.isEmpty()) {
+            return PageableExecutionUtils.getPage(emptyList(), pageable) { 0L }
+        }
+
+        val countQuery = {
+            jpaQueryFactory
+                .select(qCenter.count())
+                .from(qCenter)
+                .where(builder)
+                .fetchOne() ?: 0L
+        }
+
+        return PageableExecutionUtils.getPage(content, pageable, countQuery)
     }
 
     private fun toOrderSpecifiers(pageable: Pageable): Array<OrderSpecifier<*>> {
@@ -190,10 +376,14 @@ class CenterRepositoryImpl(
             pageable.sort.mapNotNull { order ->
                 when (order.property) {
                     "name" -> if (order.isAscending) qCenter.name.asc() else qCenter.name.desc()
-                    "totalCapacity" -> if (order.isAscending) qCenter.totalCapacity.asc() else qCenter.totalCapacity.desc()
-                    "updatedAt" -> if (order.isAscending) qCenter.updatedAt.asc() else qCenter.updatedAt.desc()
-                    "enrollment" -> enrollmentExpression().let { if (order.isAscending) it.asc() else it.desc() }
-                    "occupancyRate" -> occupancyRateExpression().let { if (order.isAscending) it.asc() else it.desc() }
+                    "totalCapacity" ->
+                        if (order.isAscending) qCenter.totalCapacity.asc() else qCenter.totalCapacity.desc()
+                    "updatedAt" ->
+                        if (order.isAscending) qCenter.updatedAt.asc() else qCenter.updatedAt.desc()
+                    "enrollment" ->
+                        enrollmentExpression().let { if (order.isAscending) it.asc() else it.desc() }
+                    "occupancyRate" ->
+                        occupancyRateExpression().let { if (order.isAscending) it.asc() else it.desc() }
                     else -> null
                 }
             }
@@ -214,7 +404,7 @@ class CenterRepositoryImpl(
     private fun occupancyRateExpression(): NumberExpression<Double> =
         Expressions.numberTemplate(
             Double::class.java,
-            "CASE WHEN COALESCE({0}, 0) > 0 THEN 1.0 * (COALESCE({1}, 0) + COALESCE({2}, 0) + COALESCE({3}, 0) + COALESCE({4}, 0) + COALESCE({5}, 0)) / {0} ELSE 0.0 END",
+            """CASE WHEN COALESCE({0}, 0) > 0 THEN 1.0 * (COALESCE({1}, 0) + COALESCE({2}, 0) + COALESCE({3}, 0) + COALESCE({4}, 0) + COALESCE({5}, 0)) / {0} ELSE 0.0 END""",
             qCenter.totalCapacity,
             qCenter.enrollment3,
             qCenter.enrollment4,
@@ -223,82 +413,51 @@ class CenterRepositoryImpl(
             qCenter.specialEnrollment,
         )
 
-    private fun getNativeOrderBy(sortType: String?): String =
-        when (sortType) {
-            "name" -> "c.name ASC"
-            "capacity" -> "COALESCE(c.total_capacity, 0) DESC"
-            "enrollment" ->
-                "(COALESCE(c.enrollment_3, 0) + COALESCE(c.enrollment_4, 0) + COALESCE(c.enrollment_5, 0) + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) DESC"
-            "occupancyRate" ->
-                "CASE WHEN COALESCE(c.total_capacity, 0) > 0 THEN 1.0 * (COALESCE(c.enrollment_3, 0) + COALESCE(c.enrollment_4, 0) + COALESCE(c.enrollment_5, 0) + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) / c.total_capacity ELSE 0 END DESC"
-            else -> "ST_Distance(c.location, ST_MakePoint(:lng, :lat)::geography) ASC"
-        }
-
-    private fun executePagedQuery(
-        builder: BooleanBuilder,
-        pageable: Pageable,
-    ): Page<Center> {
-        val orderBy = toOrderSpecifiers(pageable)
-
-        val ids =
-            jpaQueryFactory
-                .select(qCenter.id)
-                .from(qCenter)
-                .where(builder)
-                .orderBy(*orderBy)
-                .offset(pageable.offset)
-                .limit(pageable.pageSize.toLong())
-                .fetch()
-
-        if (ids.isEmpty()) {
-            return PageableExecutionUtils.getPage(emptyList(), pageable) { 0L }
-        }
-
-        val content =
-            jpaQueryFactory
-                .selectFrom(qCenter)
-                .fetchAllOneToOne()
-                .where(qCenter.id.`in`(ids))
-                .orderBy(*orderBy)
-                .fetch()
-
-        val countQuery = {
-            jpaQueryFactory
-                .select(qCenter.count())
-                .from(qCenter)
-                .where(builder)
-                .fetchOne() ?: 0L
-        }
-
-        return PageableExecutionUtils.getPage(content, pageable, countQuery)
-    }
-
-    private fun JPAQuery<Center>.fetchAllOneToOne(): JPAQuery<Center> =
+    private fun JPAQuery<Center>.fetchListRelations(): JPAQuery<Center> =
         this
-            .leftJoin(qCenter.building)
-            .fetchJoin()
-            .leftJoin(qCenter.classroom)
-            .fetchJoin()
-            .leftJoin(qCenter.teacher)
-            .fetchJoin()
-            .leftJoin(qCenter.lessonDay)
-            .fetchJoin()
             .leftJoin(qCenter.meal)
             .fetchJoin()
             .leftJoin(qCenter.bus)
-            .fetchJoin()
-            .leftJoin(qCenter.yearOfWork)
-            .fetchJoin()
-            .leftJoin(qCenter.environment)
-            .fetchJoin()
-            .leftJoin(qCenter.safetyCheck)
-            .fetchJoin()
-            .leftJoin(qCenter.mutualAid)
             .fetchJoin()
             .leftJoin(qCenter.afterSchool)
             .fetchJoin()
 
     // --- Native SQL helpers ---
+
+    private fun getNativeOrderBy(sortType: String?): String =
+        when (sortType) {
+            "name" -> "c.name ASC"
+            "capacity" -> "COALESCE(c.total_capacity, 0) DESC"
+            "enrollment" ->
+                """(COALESCE(c.enrollment3, 0) + COALESCE(c.enrollment4, 0) + COALESCE(c.enrollment5, 0)
+                    + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) DESC"""
+            "occupancyRate" ->
+                """CASE WHEN COALESCE(c.total_capacity, 0) > 0
+                    THEN 1.0 * (COALESCE(c.enrollment3, 0) + COALESCE(c.enrollment4, 0)
+                    + COALESCE(c.enrollment5, 0) + COALESCE(c.mixed_enrollment, 0)
+                    + COALESCE(c.special_enrollment, 0)) / c.total_capacity
+                    ELSE 0 END DESC"""
+            else -> "c.location::geometry <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geometry"
+        }
+
+    private fun getNativeOrderByForFilter(pageable: Pageable): String {
+        val order = pageable.sort.firstOrNull() ?: return "c.updated_at DESC"
+        return when (order.property) {
+            "name" -> "c.name ${if (order.isAscending) "ASC" else "DESC"}"
+            "totalCapacity" -> "COALESCE(c.total_capacity, 0) DESC NULLS LAST"
+            "updatedAt" -> "c.updated_at ${if (order.isAscending) "ASC" else "DESC"}"
+            "enrollment" ->
+                """(COALESCE(c.enrollment3, 0) + COALESCE(c.enrollment4, 0) + COALESCE(c.enrollment5, 0)
+                    + COALESCE(c.mixed_enrollment, 0) + COALESCE(c.special_enrollment, 0)) DESC"""
+            "occupancyRate" ->
+                """CASE WHEN COALESCE(c.total_capacity, 0) > 0
+                    THEN 1.0 * (COALESCE(c.enrollment3, 0) + COALESCE(c.enrollment4, 0)
+                    + COALESCE(c.enrollment5, 0) + COALESCE(c.mixed_enrollment, 0)
+                    + COALESCE(c.special_enrollment, 0)) / c.total_capacity
+                    ELSE 0 END DESC"""
+            else -> "c.updated_at DESC"
+        }
+    }
 
     private fun buildNativeConditions(filter: CenterSearchFilter): String =
         buildString {

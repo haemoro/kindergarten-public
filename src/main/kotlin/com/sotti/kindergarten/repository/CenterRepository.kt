@@ -4,6 +4,7 @@ import com.sotti.kindergarten.entity.Center
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -13,6 +14,59 @@ import java.util.UUID
 interface CenterRepository :
     JpaRepository<Center, UUID>,
     CenterRepositoryCustom {
+    /**
+     * Fetches a Center with all 11 OneToOne relationships in a single query.
+     * OneToMany collections (safetyEducations, insurances) are loaded lazily
+     * via @BatchSize(50) within the @Transactional service to avoid Cartesian product.
+     */
+    @Query(
+        """
+        SELECT DISTINCT c FROM Center c
+        LEFT JOIN FETCH c.building
+        LEFT JOIN FETCH c.classroom
+        LEFT JOIN FETCH c.teacher
+        LEFT JOIN FETCH c.lessonDay
+        LEFT JOIN FETCH c.meal
+        LEFT JOIN FETCH c.bus
+        LEFT JOIN FETCH c.yearOfWork
+        LEFT JOIN FETCH c.environment
+        LEFT JOIN FETCH c.safetyCheck
+        LEFT JOIN FETCH c.mutualAid
+        LEFT JOIN FETCH c.afterSchool
+        LEFT JOIN FETCH c.safetyEducations
+        LEFT JOIN FETCH c.insurances
+        WHERE c.id = :id
+        """,
+    )
+    fun findByIdWithDetails(
+        @Param("id") id: UUID,
+    ): Center?
+
+    /**
+     * Fetches multiple Centers with all OneToOne relationships in a single query.
+     * Used by compare endpoints to avoid N+1 on multiple center lookups.
+     */
+    @Query(
+        """
+        SELECT DISTINCT c FROM Center c
+        LEFT JOIN FETCH c.building
+        LEFT JOIN FETCH c.classroom
+        LEFT JOIN FETCH c.teacher
+        LEFT JOIN FETCH c.lessonDay
+        LEFT JOIN FETCH c.meal
+        LEFT JOIN FETCH c.bus
+        LEFT JOIN FETCH c.yearOfWork
+        LEFT JOIN FETCH c.environment
+        LEFT JOIN FETCH c.safetyCheck
+        LEFT JOIN FETCH c.mutualAid
+        LEFT JOIN FETCH c.afterSchool
+        WHERE c.id IN :ids
+        """,
+    )
+    fun findAllByIdsWithDetails(
+        @Param("ids") ids: List<UUID>,
+    ): List<Center>
+
     fun findByKinderCode(kinderCode: String): Center?
 
     fun findAllByKinderCodeIn(kinderCodes: List<String>): List<Center>

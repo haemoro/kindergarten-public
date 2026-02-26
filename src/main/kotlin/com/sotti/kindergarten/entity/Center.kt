@@ -7,6 +7,7 @@ import jakarta.persistence.FetchType
 import jakarta.persistence.OneToMany
 import jakarta.persistence.OneToOne
 import jakarta.persistence.Table
+import org.hibernate.annotations.BatchSize
 import org.locationtech.jts.geom.Point
 import java.time.LocalDateTime
 
@@ -96,13 +97,13 @@ class Center(
     @OneToOne(mappedBy = "center", fetch = FetchType.LAZY, cascade = [CascadeType.ALL], orphanRemoval = true)
     var safetyCheck: CenterSafetyCheck? = null,
     @OneToMany(mappedBy = "center", fetch = FetchType.LAZY, cascade = [CascadeType.ALL], orphanRemoval = true)
-    var safetyEducations: MutableList<CenterSafetyEducation> = mutableListOf(),
+    @BatchSize(size = 50)
+    var safetyEducations: MutableSet<CenterSafetyEducation> = mutableSetOf(),
     @OneToOne(mappedBy = "center", fetch = FetchType.LAZY, cascade = [CascadeType.ALL], orphanRemoval = true)
     var mutualAid: CenterMutualAid? = null,
     @OneToMany(mappedBy = "center", fetch = FetchType.LAZY, cascade = [CascadeType.ALL], orphanRemoval = true)
-    var insurances: MutableList<CenterInsurance> = mutableListOf(),
+    @BatchSize(size = 50)
+    var insurances: MutableSet<CenterInsurance> = mutableSetOf(),
     @OneToOne(mappedBy = "center", fetch = FetchType.LAZY, cascade = [CascadeType.ALL], orphanRemoval = true)
     var afterSchool: CenterAfterSchool? = null,
-    @OneToMany(mappedBy = "center", fetch = FetchType.LAZY, cascade = [CascadeType.ALL], orphanRemoval = true)
-    var favorites: MutableList<Favorite> = mutableListOf(),
 ) : BaseEntity()

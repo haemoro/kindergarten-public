@@ -1,11 +1,14 @@
-CREATE EXTENSION IF NOT EXISTS postgis;
+-- Performance indexes for detail/compare endpoints
 
--- Performance indexes (safe to run on every startup with IF NOT EXISTS)
--- Partial index on is_active for filtered lookups
+-- Index on center.is_active for filtered lookups (detail endpoint checks isActive)
 CREATE INDEX IF NOT EXISTS idx_center_is_active ON center(is_active) WHERE is_active = true;
--- Composite index for active + establish_type search pattern
+
+-- Composite index for the common search pattern: active + establish_type
 CREATE INDEX IF NOT EXISTS idx_center_active_establish_type ON center(is_active, establish_type);
--- Unique constraints on center_id for 1:1 child tables (optimizes JOIN FETCH)
+
+-- Add UNIQUE constraints on center_id for all 1:1 child tables to ensure
+-- the database enforces the OneToOne relationship and optimizes JOINs.
+-- These also serve as unique indexes for the JOIN FETCH queries.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_center_building_center_id_unique ON center_building(center_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_center_classroom_center_id_unique ON center_classroom(center_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_center_teacher_center_id_unique ON center_teacher(center_id);
@@ -17,14 +20,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_center_environment_center_id_unique ON cen
 CREATE UNIQUE INDEX IF NOT EXISTS idx_center_safety_check_center_id_unique ON center_safety_check(center_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_center_mutual_aid_center_id_unique ON center_mutual_aid(center_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_center_after_school_center_id_unique ON center_after_school(center_id);
-
--- Trigram indexes for LIKE/ILIKE text search on name and address
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX IF NOT EXISTS idx_center_name_trgm ON center USING GIN (name gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_center_address_trgm ON center USING GIN (address gin_trgm_ops);
-
--- Index for default ORDER BY updated_at DESC
-CREATE INDEX IF NOT EXISTS idx_center_updated_at_desc ON center(updated_at DESC);
-
--- Composite index for active centers sorted by updated_at (most common query pattern)
-CREATE INDEX IF NOT EXISTS idx_center_active_updated ON center(is_active, updated_at DESC) WHERE is_active = true;

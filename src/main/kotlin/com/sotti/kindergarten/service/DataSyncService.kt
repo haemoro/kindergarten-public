@@ -57,6 +57,7 @@ import org.locationtech.jts.geom.Coordinate
 import org.locationtech.jts.geom.GeometryFactory
 import org.locationtech.jts.geom.PrecisionModel
 import org.slf4j.LoggerFactory
+import org.springframework.cache.CacheManager
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.time.Duration
@@ -81,6 +82,7 @@ class DataSyncService(
     private val mutualAidRepository: CenterMutualAidRepository,
     private val insuranceRepository: CenterInsuranceRepository,
     private val afterSchoolRepository: CenterAfterSchoolRepository,
+    private val cacheManager: CacheManager,
 ) {
     private val logger = LoggerFactory.getLogger(DataSyncService::class.java)
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
@@ -180,6 +182,8 @@ class DataSyncService(
                 }
             }
 
+        evictAllCenterCaches()
+
         val duration = Duration.between(startTime, LocalDateTime.now())
         val minutes = duration.toMinutes()
         val seconds = duration.seconds % 60
@@ -188,6 +192,13 @@ class DataSyncService(
                 "${minutes}m ${seconds}s elapsed ===",
         )
         return totalItems
+    }
+
+    private fun evictAllCenterCaches() {
+        listOf("centerDetail", "appCenterDetail").forEach { cacheName ->
+            cacheManager.getCache(cacheName)?.clear()
+        }
+        logger.info("Center detail caches cleared after sync")
     }
 
     fun syncSingleRegion(

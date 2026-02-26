@@ -41,6 +41,8 @@ import com.sotti.kindergarten.exception.InvalidCompareRequestException
 import com.sotti.kindergarten.repository.CenterRepository
 import com.sotti.kindergarten.repository.CenterSearchFilter
 import com.sotti.kindergarten.repository.RegionRepository
+import com.sotti.kindergarten.repository.SearchListProjection
+import org.springframework.cache.annotation.Cacheable
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
@@ -48,16 +50,13 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 @Service
 @Transactional(readOnly = true)
 class CenterService(
     private val centerRepository: CenterRepository,
     private val regionRepository: RegionRepository,
+    private val regionCacheService: RegionCacheService,
 ) {
     fun listCenters(
         lat: Double?,
@@ -72,29 +71,25 @@ class CenterService(
         val pageable = PageRequest.of(page, size, getSort(sort))
         val filter = CenterSearchFilter(establishTypes = parseTypes(establishType), name = query)
 
-        val centersPage =
+        val projPage =
             if (lat != null && lng != null && radiusKm != null) {
                 centerRepository.findNearby(lat, lng, radiusKm * 1000, filter, pageable)
             } else {
-                centerRepository.findAllWithFilters(filter, pageable)
-            }
-
-        val content =
-            centersPage.content.map { center ->
-                toCenterListResponse(center, calculateDistanceOrNull(lat, lng, center))
+                centerRepository.findAllWithFilters(filter, pageable, lat, lng)
             }
 
         return PageResponse(
-            content = content,
-            page = centersPage.number,
-            size = centersPage.size,
-            totalElements = centersPage.totalElements,
-            totalPages = centersPage.totalPages,
+            content = projPage.content.map { it.toCenterListResponse() },
+            page = projPage.number,
+            size = projPage.size,
+            totalElements = projPage.totalElements,
+            totalPages = projPage.totalPages,
         )
     }
 
+    @Cacheable("centerDetail", key = "#id")
     fun getCenterDetail(id: UUID): CenterDetailResponse {
-        val center = centerRepository.findById(id).orElseThrow { CenterNotFoundException(id) }
+        val center = centerRepository.findByIdWithDetails(id) ?: throw CenterNotFoundException(id)
         return toCenterDetailResponse(center)
     }
 
@@ -103,16 +98,33 @@ class CenterService(
             throw InvalidCompareRequestException()
         }
 
-        val centers = centerRepository.findAllById(request.centerIds)
-        if (centers.size != request.centerIds.size) {
-            val foundIds = centers.map { it.id }.toSet()
+        val projections = centerRepository.findCompareData(request.centerIds, request.lat, request.lng)
+        if (projections.size != request.centerIds.size) {
+            val foundIds = projections.map { it.id }.toSet()
             val missingId = request.centerIds.firstOrNull { it !in foundIds }
             throw CenterNotFoundException(missingId ?: request.centerIds.first())
         }
 
         val comparisons =
-            centers.map { center ->
-                toComparisonItem(center, calculateDistanceOrNull(request.lat, request.lng, center))
+            projections.map { projection ->
+                ComparisonItem(
+                    id = projection.id,
+                    name = projection.name,
+                    establishType = projection.establishType,
+                    address = projection.address,
+                    distanceKm = projection.distanceKm,
+                    capacity = projection.capacity,
+                    currentEnrollment = projection.currentEnrollment,
+                    teacherCount = projection.teacherCount,
+                    classCount = projection.classCount,
+                    mealProvided = projection.mealProvided,
+                    busAvailable = projection.busAvailable,
+                    extendedCare = projection.extendedCare,
+                    buildingArea = projection.buildingArea,
+                    classroomArea = projection.classroomArea,
+                    cctvInstalled = projection.cctvInstalled,
+                    cctvTotal = projection.cctvTotal,
+                )
             }
 
         return CenterCompareResponse(centers = comparisons)
@@ -142,35 +154,28 @@ class CenterService(
             )
 
         val hasTextOrRegion = !query.isNullOrBlank() || sidoCode != null || sggCode != null
-        val centersPage =
-            if (hasTextOrRegion) {
-                // 텍스트 검색 또는 지역 필터 시 반경 제한 없이 전체 검색
-                centerRepository.findAllWithFilters(filter, pageable)
-            } else if (lat != null && lng != null && radiusKm != null) {
+
+        val projPage =
+            if (!hasTextOrRegion && lat != null && lng != null && radiusKm != null) {
                 centerRepository.findNearby(lat, lng, radiusKm * 1000, filter, pageable, sort)
             } else {
-                centerRepository.findAllWithFilters(filter, pageable)
-            }
-
-        val content =
-            centersPage.content.map { center ->
-                toAppSearchResponse(center, calculateDistanceOrNull(lat, lng, center))
+                centerRepository.findAllWithFilters(filter, pageable, lat, lng)
             }
 
         return PageResponse(
-            content = content,
-            page = centersPage.number,
-            size = centersPage.size,
-            totalElements = centersPage.totalElements,
-            totalPages = centersPage.totalPages,
+            content = projPage.content.map { it.toAppSearchResponse() },
+            page = projPage.number,
+            size = projPage.size,
+            totalElements = projPage.totalElements,
+            totalPages = projPage.totalPages,
         )
     }
 
+    @Cacheable("appCenterDetail", key = "#id")
     fun getActiveKindergartenDetail(id: UUID): AppKindergartenDetailResponse {
         val center =
-            centerRepository.findById(id).orElseThrow {
-                BusinessException(ErrorCode.KINDERGARTEN_NOT_FOUND)
-            }
+            centerRepository.findByIdWithDetails(id)
+                ?: throw BusinessException(ErrorCode.KINDERGARTEN_NOT_FOUND)
         if (!center.isActive) {
             throw BusinessException(ErrorCode.KINDERGARTEN_NOT_FOUND)
         }
@@ -189,19 +194,36 @@ class CenterService(
             throw BusinessException(ErrorCode.COMPARE_LIMIT_EXCEEDED)
         }
 
-        val centers = centerRepository.findAllById(ids)
-        if (centers.size != ids.size) {
+        val projections = centerRepository.findCompareData(ids, lat, lng)
+        if (projections.size != ids.size) {
             throw BusinessException(ErrorCode.KINDERGARTEN_NOT_FOUND)
         }
 
-        val activeCenters = centers.filter { it.isActive }
-        if (activeCenters.size != ids.size) {
+        val activeProjections = projections.filter { it.isActive }
+        if (activeProjections.size != ids.size) {
             throw BusinessException(ErrorCode.KINDERGARTEN_NOT_FOUND)
         }
 
         val comparisons =
-            activeCenters.map { center ->
-                toComparisonItem(center, calculateDistanceOrNull(lat, lng, center))
+            activeProjections.map { projection ->
+                ComparisonItem(
+                    id = projection.id,
+                    name = projection.name,
+                    establishType = projection.establishType,
+                    address = projection.address,
+                    distanceKm = projection.distanceKm,
+                    capacity = projection.capacity,
+                    currentEnrollment = projection.currentEnrollment,
+                    teacherCount = projection.teacherCount,
+                    classCount = projection.classCount,
+                    mealProvided = projection.mealProvided,
+                    busAvailable = projection.busAvailable,
+                    extendedCare = projection.extendedCare,
+                    buildingArea = projection.buildingArea,
+                    classroomArea = projection.classroomArea,
+                    cctvInstalled = projection.cctvInstalled,
+                    cctvTotal = projection.cctvTotal,
+                )
             }
 
         return AppCompareResponse(centers = comparisons)
@@ -237,30 +259,41 @@ class CenterService(
         }
     }
 
-    private fun toAppSearchResponse(
-        center: Center,
-        distanceKm: Double?,
-    ): AppKindergartenSearchResponse {
-        val currentEnrollment = calculateCurrentEnrollment(center)
-        val totalClassCount = calculateTotalClassCount(center)
-
-        return AppKindergartenSearchResponse(
-            id = center.id!!,
-            name = center.name,
-            establishType = center.establishType,
-            address = center.address,
-            phone = center.phone,
-            lat = center.location?.y,
-            lng = center.location?.x,
+    private fun SearchListProjection.toAppSearchResponse() =
+        AppKindergartenSearchResponse(
+            id = id,
+            name = name,
+            establishType = establishType,
+            address = address,
+            phone = phone,
+            lat = lat,
+            lng = lng,
             distanceKm = distanceKm,
-            capacity = center.totalCapacity,
+            capacity = capacity,
             currentEnrollment = currentEnrollment,
             totalClassCount = totalClassCount,
-            mealProvided = center.meal?.mealOperationType != null,
-            busAvailable = center.bus?.busOperating?.equals("Y", ignoreCase = true),
-            extendedCare = center.afterSchool != null,
+            mealProvided = mealProvided,
+            busAvailable = busAvailable,
+            extendedCare = extendedCare,
         )
-    }
+
+    private fun SearchListProjection.toCenterListResponse() =
+        CenterListResponse(
+            id = id,
+            name = name,
+            establishType = establishType,
+            address = address,
+            phone = phone,
+            lat = lat,
+            lng = lng,
+            distanceKm = distanceKm,
+            capacity = capacity,
+            currentEnrollment = currentEnrollment,
+            totalClassCount = totalClassCount,
+            mealProvided = mealProvided,
+            busAvailable = busAvailable,
+            extendedCare = extendedCare,
+        )
 
     private fun toAppDetailResponse(center: Center): AppKindergartenDetailResponse =
         AppKindergartenDetailResponse(
@@ -377,7 +410,7 @@ class CenterService(
             else -> "-"
         }
 
-    private fun buildSafetyEducations(educations: List<CenterSafetyEducation>): List<SafetyEducationResponse>? =
+    private fun buildSafetyEducations(educations: Collection<CenterSafetyEducation>): List<SafetyEducationResponse>? =
         educations
             .filter { edu ->
                 val allFields =
@@ -413,7 +446,7 @@ class CenterService(
                 )
             }
 
-    private fun buildInsurances(insurances: List<CenterInsurance>): List<InsuranceResponse>? =
+    private fun buildInsurances(insurances: Collection<CenterInsurance>): List<InsuranceResponse>? =
         insurances
             .distinctBy { it.insuranceName }
             .takeIf { it.isNotEmpty() }
@@ -495,37 +528,13 @@ class CenterService(
     private fun getSort(sort: String?): Sort =
         when (sort) {
             "name" -> Sort.by("name").ascending()
+            "distance" -> Sort.by("distance").ascending()
             "capacity" -> Sort.by(Sort.Order.desc("totalCapacity").nullsLast())
             "enrollment" -> Sort.by(Sort.Order.desc("enrollment").nullsLast())
             "occupancyRate" -> Sort.by(Sort.Order.desc("occupancyRate").nullsLast())
             "updated" -> Sort.by("updatedAt").descending()
             else -> Sort.by("updatedAt").descending()
         }
-
-    private fun toCenterListResponse(
-        center: Center,
-        distanceKm: Double?,
-    ): CenterListResponse {
-        val currentEnrollment = calculateCurrentEnrollment(center)
-        val totalClassCount = calculateTotalClassCount(center)
-
-        return CenterListResponse(
-            id = center.id!!,
-            name = center.name,
-            establishType = center.establishType,
-            address = center.address,
-            phone = center.phone,
-            lat = center.location?.y,
-            lng = center.location?.x,
-            distanceKm = distanceKm,
-            capacity = center.totalCapacity,
-            currentEnrollment = currentEnrollment,
-            totalClassCount = totalClassCount,
-            mealProvided = center.meal?.mealOperationType != null,
-            busAvailable = center.bus?.busOperating?.equals("Y", ignoreCase = true),
-            extendedCare = center.afterSchool != null,
-        )
-    }
 
     private fun toCenterDetailResponse(center: Center): CenterDetailResponse =
         CenterDetailResponse(
@@ -733,40 +742,6 @@ class CenterService(
             sourceUpdatedAt = center.sourceUpdatedAt,
         )
 
-    private fun toComparisonItem(
-        center: Center,
-        distanceKm: Double?,
-    ): ComparisonItem {
-        val teacherCount =
-            center.teacher?.let {
-                (it.directorCount ?: 0) +
-                    (it.viceDirectorCount ?: 0) +
-                    (it.masterTeacherCount ?: 0) +
-                    (it.leadTeacherCount ?: 0) +
-                    (it.generalTeacherCount ?: 0) +
-                    (it.specialTeacherCount ?: 0)
-            }
-
-        return ComparisonItem(
-            id = center.id!!,
-            name = center.name,
-            establishType = center.establishType,
-            address = center.address,
-            distanceKm = distanceKm,
-            capacity = center.totalCapacity,
-            currentEnrollment = calculateCurrentEnrollment(center),
-            teacherCount = teacherCount,
-            classCount = calculateTotalClassCount(center),
-            mealProvided = center.meal?.mealOperationType != null,
-            busAvailable = center.bus?.busOperating?.equals("Y", ignoreCase = true),
-            extendedCare = center.afterSchool != null,
-            buildingArea = center.building?.buildingArea,
-            classroomArea = center.classroom?.classroomArea,
-            cctvInstalled = center.safetyCheck?.cctvInstalled?.equals("Y", ignoreCase = true),
-            cctvTotal = center.safetyCheck?.cctvTotal,
-        )
-    }
-
     private fun calculateCurrentEnrollment(center: Center): Int? {
         val enrollments =
             listOf(
@@ -811,39 +786,8 @@ class CenterService(
         sidoCode: String?,
         sggCode: String?,
     ): Pair<String?, String?> {
-        val sidoName = sidoCode?.let { regionRepository.findFirstBySidoCode(it)?.sidoName }
-        val sggName = sggCode?.let { regionRepository.findBySggCode(it)?.sggName }
+        val sidoName = sidoCode?.let { regionCacheService.getSidoName(it) }
+        val sggName = sggCode?.let { regionCacheService.getSggName(it) }
         return sidoName to sggName
-    }
-
-    private fun calculateDistanceOrNull(
-        lat: Double?,
-        lng: Double?,
-        center: Center,
-    ): Double? {
-        val location = center.location ?: return null
-        if (lat == null || lng == null) return null
-        return calculateDistance(lat, lng, location.y, location.x)
-    }
-
-    private fun calculateDistance(
-        lat1: Double,
-        lng1: Double,
-        lat2: Double,
-        lng2: Double,
-    ): Double {
-        val earthRadiusKm = 6371.0
-
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLng = Math.toRadians(lng2 - lng1)
-
-        val a =
-            sin(dLat / 2) * sin(dLat / 2) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-                sin(dLng / 2) * sin(dLng / 2)
-
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-
-        return earthRadiusKm * c
     }
 }

@@ -16,7 +16,9 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:1025/actuator/health || exit 1
 
 CMD ["java", \
-  "-XX:+UseG1GC", \
-  "-XX:MaxRAMPercentage=70.0", \
+  "-XX:+UseSerialGC", \
+  "-Xms128m", \
+  "-Xmx256m", \
+  "-XX:MaxMetaspaceSize=128m", \
   "-XX:+UseStringDeduplication", \
   "-jar", "app.jar"]
