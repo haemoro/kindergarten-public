@@ -29,7 +29,7 @@ class UserReviewService(
         size: Int,
     ): PageResponse<UserReviewResponse> {
         val pageable = PageRequest.of(page, size)
-        val reviewPage = userReviewRepository.findAllByCenterIdOrderByCreatedAtDesc(centerId, pageable)
+        val reviewPage = userReviewRepository.findAllByCenterIdWithCenter(centerId, pageable)
 
         val content =
             reviewPage.content.map { review ->

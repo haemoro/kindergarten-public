@@ -46,7 +46,7 @@ class UserReviewServiceTest :
 
             val pageable = PageRequest.of(0, 20)
             every {
-                userReviewRepository.findAllByCenterIdOrderByCreatedAtDesc(centerId, pageable)
+                userReviewRepository.findAllByCenterIdWithCenter(centerId, pageable)
             } returns PageImpl(listOf(review), pageable, 1)
 
             When("본인 deviceId로 조회") {

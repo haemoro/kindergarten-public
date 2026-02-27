@@ -93,10 +93,10 @@ interface CenterRepository :
 
     fun findAllByAddressStartingWith(addressPrefix: String): List<Center>
 
-    @Query("SELECT c.id, c.name, c.address FROM Center c WHERE c.address LIKE :prefix%")
+    @Query("SELECT c.id AS id, c.name AS name, c.address AS address FROM Center c WHERE c.address LIKE :prefix%")
     fun findIdNameAddressByAddressPrefix(
         @Param("prefix") prefix: String,
-    ): List<Array<Any>>
+    ): List<CenterIdNameProjection>
 
     fun countByEstablishType(establishType: String): Long
 
