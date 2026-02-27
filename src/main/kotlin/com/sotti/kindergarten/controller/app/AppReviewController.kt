@@ -18,6 +18,9 @@ class AppReviewController(
     @GetMapping("/recent")
     fun getRecentReviews(
         @RequestParam(required = false, defaultValue = "0") page: Int,
-        @RequestParam(required = false, defaultValue = "5") size: Int,
-    ): PageResponse<RecentReviewResponse> = centerReviewService.getRecentReviews(page, size)
+        @RequestParam(required = false, defaultValue = "3") size: Int,
+        @RequestParam(required = false) lat: Double?,
+        @RequestParam(required = false) lng: Double?,
+        @RequestParam(required = false, defaultValue = "5.0") radiusKm: Double,
+    ): PageResponse<RecentReviewResponse> = centerReviewService.getRecentReviews(page, size, lat, lng, radiusKm)
 }
