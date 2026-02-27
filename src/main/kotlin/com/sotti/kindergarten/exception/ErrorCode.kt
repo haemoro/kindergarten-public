@@ -22,5 +22,8 @@ enum class ErrorCode(
     ADMIN_INACTIVE(HttpStatus.FORBIDDEN, "Admin account is inactive"),
     INVALID_PASSWORD(HttpStatus.BAD_REQUEST, "Current password is incorrect"),
     CANNOT_DELETE_SELF(HttpStatus.BAD_REQUEST, "Cannot delete your own account"),
+    USER_REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "User review not found"),
+    DUPLICATE_USER_REVIEW(HttpStatus.CONFLICT, "이미 이 유치원에 한줄평을 작성했습니다"),
+    PROFANITY_DETECTED(HttpStatus.BAD_REQUEST, "부적절한 표현이 포함되어 있습니다"),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred"),
 }

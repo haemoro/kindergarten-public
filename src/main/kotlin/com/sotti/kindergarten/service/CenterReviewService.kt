@@ -173,8 +173,8 @@ class CenterReviewService(
             )
         }
 
-        val rows = centerRepository.findIdNameAddressByAddressPrefix(sidoName)
-        val estimatedApiCalls = rows.size * API_CALLS_PER_CENTER
+        val projections = centerRepository.findIdNameAddressByAddressPrefix(sidoName)
+        val estimatedApiCalls = projections.size * API_CALLS_PER_CENTER
         if (estimatedApiCalls > DAILY_API_LIMIT) {
             return mapOf(
                 "status" to "rejected",
@@ -182,13 +182,13 @@ class CenterReviewService(
             )
         }
 
-        val centerIds = rows.map { it[0] as UUID }
-        startAsyncSync(centerIds, rows.size, sidoName)
+        val centerIds = projections.map { it.id }
+        startAsyncSync(centerIds, projections.size, sidoName)
 
         return mapOf(
             "status" to "started",
-            "message" to "$sidoName ${rows.size}개 유치원 병렬 동기화 시작",
-            "totalCenters" to rows.size,
+            "message" to "$sidoName ${projections.size}개 유치원 병렬 동기화 시작",
+            "totalCenters" to projections.size,
             "estimatedApiCalls" to estimatedApiCalls,
         )
     }
@@ -201,8 +201,8 @@ class CenterReviewService(
             )
         }
 
-        val rows = centerRepository.findIdNameAddressByAddressPrefix("")
-        val estimatedApiCalls = rows.size * API_CALLS_PER_CENTER
+        val projections = centerRepository.findIdNameAddressByAddressPrefix("")
+        val estimatedApiCalls = projections.size * API_CALLS_PER_CENTER
         if (estimatedApiCalls > DAILY_API_LIMIT) {
             return mapOf(
                 "status" to "rejected",
@@ -210,13 +210,13 @@ class CenterReviewService(
             )
         }
 
-        val centerIds = rows.map { it[0] as UUID }
-        startAsyncSync(centerIds, rows.size, "all")
+        val centerIds = projections.map { it.id }
+        startAsyncSync(centerIds, projections.size, "all")
 
         return mapOf(
             "status" to "started",
-            "message" to "전체 ${rows.size}개 유치원 병렬 동기화 시작",
-            "totalCenters" to rows.size,
+            "message" to "전체 ${projections.size}개 유치원 병렬 동기화 시작",
+            "totalCenters" to projections.size,
             "estimatedApiCalls" to estimatedApiCalls,
         )
     }

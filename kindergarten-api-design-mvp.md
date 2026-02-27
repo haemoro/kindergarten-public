@@ -395,7 +395,7 @@ GET /api/admin/dashboard/stats
     { "sido": "경기도", "count": 2345 }
   ],
   "byType": [
-    { "type": "사립", "count": 5432 },
+    { "type": "사립", "count": 6543 },
     { "type": "공립", "count": 2800 },
     { "type": "국립", "count": 200 }
   ],
