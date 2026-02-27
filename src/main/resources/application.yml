@@ -7,12 +7,13 @@ spring:
 
   datasource:
     hikari:
-      maximum-pool-size: 7
-      minimum-idle: 2
+      maximum-pool-size: 5
+      minimum-idle: 1
       keepalive-time: 30000
       connection-timeout: 20000
       validation-timeout: 5000
-      max-lifetime: 600000
+      max-lifetime: 580000
+      leak-detection-threshold: 30000
 
   jpa:
     hibernate:

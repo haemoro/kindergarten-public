@@ -4,6 +4,14 @@ spring:
     username: ${SUPABASE_USER}
     password: ${SUPABASE_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      keepalive-time: 30000
+      connection-timeout: 20000
+      validation-timeout: 5000
+      max-lifetime: 580000
+      leak-detection-threshold: 30000
 
   jpa:
     hibernate:

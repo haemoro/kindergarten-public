@@ -15,4 +15,6 @@ interface CenterReviewRepository : JpaRepository<CenterReview, UUID> {
     fun deleteAllByCenterId(centerId: UUID)
 
     fun existsByLink(link: String): Boolean
+
+    fun findByPostDateIsNotNullOrderByPostDateDesc(pageable: Pageable): Page<CenterReview>
 }
