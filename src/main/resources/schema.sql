@@ -28,3 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_center_updated_at_desc ON center(updated_at DESC)
 
 -- Composite index for active centers sorted by updated_at (most common query pattern)
 CREATE INDEX IF NOT EXISTS idx_center_active_updated ON center(is_active, updated_at DESC) WHERE is_active = true;
+
+-- User review indexes
+CREATE INDEX IF NOT EXISTS idx_user_review_center_id ON user_review(center_id);
+CREATE INDEX IF NOT EXISTS idx_user_review_device_id ON user_review(device_id);

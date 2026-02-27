@@ -91,4 +91,15 @@ class AdminController(
         centerReviewService.syncReviews(centerId)
         return ResponseEntity.ok(mapOf("message" to "Review sync completed for center=$centerId"))
     }
+
+    @PostMapping("/reviews/sync/async")
+    fun triggerReviewSyncAsync(): ResponseEntity<Map<String, Any>> = ResponseEntity.ok(centerReviewService.syncAllReviewsAsync())
+
+    @PostMapping("/reviews/sync/region/async")
+    fun triggerReviewSyncByRegionAsync(
+        @RequestParam sidoName: String,
+    ): ResponseEntity<Map<String, Any>> = ResponseEntity.ok(centerReviewService.syncReviewsByRegionAsync(sidoName))
+
+    @GetMapping("/reviews/sync/status")
+    fun getReviewSyncStatus(): ResponseEntity<Map<String, Any?>> = ResponseEntity.ok(centerReviewService.getAsyncSyncStatus())
 }
