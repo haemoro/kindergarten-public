@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import java.util.UUID
 
 @RestController
 @RequestMapping("/api/app/reviews")
@@ -17,10 +18,10 @@ class AppReviewController(
 ) {
     @GetMapping("/recent")
     fun getRecentReviews(
-        @RequestParam(required = false, defaultValue = "0") page: Int,
+        @RequestParam(required = false) centerIds: String?,
         @RequestParam(required = false, defaultValue = "3") size: Int,
-        @RequestParam(required = false) lat: Double?,
-        @RequestParam(required = false) lng: Double?,
-        @RequestParam(required = false, defaultValue = "5.0") radiusKm: Double,
-    ): PageResponse<RecentReviewResponse> = centerReviewService.getRecentReviews(page, size, lat, lng, radiusKm)
+    ): PageResponse<RecentReviewResponse> {
+        val ids = centerIds?.split(",")?.mapNotNull { runCatching { UUID.fromString(it.trim()) }.getOrNull() }
+        return centerReviewService.getRecentReviews(ids, size)
+    }
 }

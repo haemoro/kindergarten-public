@@ -112,16 +112,13 @@ class CenterReviewService(
 
     @Transactional(readOnly = true)
     fun getRecentReviews(
-        page: Int,
+        centerIds: List<UUID>?,
         size: Int,
-        lat: Double?,
-        lng: Double?,
-        radiusKm: Double,
     ): PageResponse<RecentReviewResponse> {
-        if (lat != null && lng != null) {
-            val radiusMeters = radiusKm * 1_000
-            val rows = centerReviewRepository.findRecentByLocation(lat, lng, radiusMeters, size)
-            val content = rows.map { it.toRecentReviewResponse() }
+        if (!centerIds.isNullOrEmpty()) {
+            val reviews = centerReviewRepository
+                .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
+            val content = reviews.content.map { it.toRecentResponse() }
             return PageResponse(
                 content = content,
                 page = 0,
@@ -133,7 +130,7 @@ class CenterReviewService(
 
         val reviewPage =
             centerReviewRepository
-                .findByPostDateIsNotNullOrderByPostDateDesc(PageRequest.of(page, size))
+                .findByPostDateIsNotNullOrderByPostDateDesc(PageRequest.of(0, size))
 
         return PageResponse(
             content = reviewPage.content.map { it.toRecentResponse() },
@@ -444,17 +441,6 @@ class CenterReviewService(
             snippet = snippet,
             source = source,
             postDate = postDate!!,
-        )
-
-    private fun Array<Any>.toRecentReviewResponse(): RecentReviewResponse =
-        RecentReviewResponse(
-            centerId = this[6] as UUID,
-            centerName = this[7] as String,
-            title = this[1] as String,
-            link = this[2] as String,
-            snippet = this[3] as String,
-            source = this[4] as String,
-            postDate = (this[5] as java.sql.Date).toLocalDate(),
         )
 
     private fun String.stripHtmlTags(): String =
