@@ -115,29 +115,19 @@ class CenterReviewService(
         centerIds: List<UUID>?,
         size: Int,
     ): PageResponse<RecentReviewResponse> {
-        if (!centerIds.isNullOrEmpty()) {
-            val reviews = centerReviewRepository
-                .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
-            val content = reviews.content.map { it.toRecentResponse() }
-            return PageResponse(
-                content = content,
-                page = 0,
-                size = size,
-                totalElements = content.size.toLong(),
-                totalPages = 1,
-            )
+        if (centerIds.isNullOrEmpty()) {
+            return PageResponse(content = emptyList(), page = 0, size = size, totalElements = 0, totalPages = 0)
         }
 
-        val reviewPage =
-            centerReviewRepository
-                .findByPostDateIsNotNullOrderByPostDateDesc(PageRequest.of(0, size))
-
+        val reviews = centerReviewRepository
+            .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
+        val content = reviews.content.map { it.toRecentResponse() }
         return PageResponse(
-            content = reviewPage.content.map { it.toRecentResponse() },
-            page = reviewPage.number,
-            size = reviewPage.size,
-            totalElements = reviewPage.totalElements,
-            totalPages = reviewPage.totalPages,
+            content = content,
+            page = 0,
+            size = size,
+            totalElements = content.size.toLong(),
+            totalPages = 1,
         )
     }
 
