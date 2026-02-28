@@ -236,7 +236,7 @@ class CenterReviewService(
         asyncSyncLabel = label
         asyncSyncStartedAt = LocalDateTime.now()
 
-        Thread.startVirtualThread { syncCenterIdsParallel(centerIds, label) }
+        Thread { syncCenterIdsParallel(centerIds, label) }.apply { isDaemon = true }.start()
     }
 
     fun getAsyncSyncStatus(): Map<String, Any?> =
