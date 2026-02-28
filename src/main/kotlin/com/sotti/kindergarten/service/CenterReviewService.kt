@@ -115,31 +115,19 @@ class CenterReviewService(
         centerIds: List<UUID>?,
         size: Int,
     ): PageResponse<RecentReviewResponse> {
-        // 1순위: 주변 유치원의 리뷰
-        if (!centerIds.isNullOrEmpty()) {
-            val reviews = centerReviewRepository
-                .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
-            if (reviews.content.isNotEmpty()) {
-                val content = reviews.content.map { it.toRecentResponse() }
-                return PageResponse(
-                    content = content,
-                    page = 0,
-                    size = size,
-                    totalElements = content.size.toLong(),
-                    totalPages = 1,
-                )
-            }
+        if (centerIds.isNullOrEmpty()) {
+            return PageResponse(content = emptyList(), page = 0, size = size, totalElements = 0, totalPages = 0)
         }
 
-        // 2순위: 전체 최근 외부리뷰 fallback
-        val reviewPage = centerReviewRepository
-            .findByPostDateIsNotNullOrderByPostDateDesc(PageRequest.of(0, size))
+        val reviews = centerReviewRepository
+            .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
+        val content = reviews.content.map { it.toRecentResponse() }
         return PageResponse(
-            content = reviewPage.content.map { it.toRecentResponse() },
+            content = content,
             page = 0,
             size = size,
-            totalElements = reviewPage.totalElements,
-            totalPages = reviewPage.totalPages,
+            totalElements = content.size.toLong(),
+            totalPages = 1,
         )
     }
 
