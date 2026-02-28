@@ -47,3 +47,7 @@ out/
 ### Local config ###
 application-local.yml
 **/application-local.yml
+
+### Scripts ###
+scripts/storage_state.json
+scripts/seed.log

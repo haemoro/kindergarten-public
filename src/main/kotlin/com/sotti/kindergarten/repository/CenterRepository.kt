@@ -107,4 +107,45 @@ interface CenterRepository :
         ids: List<UUID>,
         now: LocalDateTime,
     ): Int
+
+    @Query(
+        value = """
+            SELECT c.id, c.name, c.establish_type, c.address,
+                   m.meal_operation_type, b.bus_operating,
+                   (COALESCE(t.director_count,0) + COALESCE(t.vice_director_count,0)
+                    + COALESCE(t.general_teacher_count,0) + COALESCE(t.lead_teacher_count,0)
+                    + COALESCE(t.special_teacher_count,0)) as teacher_count,
+                   sc.cctv_total
+            FROM center c
+            LEFT JOIN center_meal m ON m.center_id = c.id
+            LEFT JOIN center_bus b ON b.center_id = c.id
+            LEFT JOIN center_teacher t ON t.center_id = c.id
+            LEFT JOIN center_safety_check sc ON sc.center_id = c.id
+            WHERE c.address LIKE :sidoName
+              AND c.is_active = true
+              AND NOT EXISTS (SELECT 1 FROM user_review ur WHERE ur.center_id = c.id)
+            ORDER BY c.name
+            LIMIT :limit OFFSET :offset
+            """,
+        nativeQuery = true,
+    )
+    fun findCentersWithoutReviewBySido(
+        @Param("sidoName") sidoName: String,
+        @Param("offset") offset: Int,
+        @Param("limit") limit: Int,
+    ): List<Array<Any?>>
+
+    @Query(
+        value = """
+            SELECT COUNT(*)
+            FROM center c
+            WHERE c.address LIKE :sidoName
+              AND c.is_active = true
+              AND NOT EXISTS (SELECT 1 FROM user_review ur WHERE ur.center_id = c.id)
+            """,
+        nativeQuery = true,
+    )
+    fun countCentersWithoutReviewBySido(
+        @Param("sidoName") sidoName: String,
+    ): Long
 }
