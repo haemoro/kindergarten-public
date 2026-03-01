@@ -37,6 +37,15 @@ interface UserReviewRepository : JpaRepository<UserReview, UUID> {
         deviceId: String,
     ): Int
 
+    @Query(
+        value = "SELECT r FROM UserReview r JOIN FETCH r.center WHERE r.center.id IN :centerIds ORDER BY r.createdAt DESC",
+        countQuery = "SELECT COUNT(r) FROM UserReview r WHERE r.center.id IN :centerIds",
+    )
+    fun findByCenterIdInOrderByCreatedAtDesc(
+        @Param("centerIds") centerIds: List<UUID>,
+        pageable: Pageable,
+    ): Page<UserReview>
+
     @Modifying
     @Query(
         value = "UPDATE user_review SET created_at = :createdAt, updated_at = :updatedAt WHERE id = :id",

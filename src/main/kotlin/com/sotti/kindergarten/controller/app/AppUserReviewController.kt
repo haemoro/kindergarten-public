@@ -1,6 +1,7 @@
 package com.sotti.kindergarten.controller.app
 
 import com.sotti.kindergarten.dto.PageResponse
+import com.sotti.kindergarten.dto.app.RecentUserReviewResponse
 import com.sotti.kindergarten.dto.app.UserReviewCreateRequest
 import com.sotti.kindergarten.dto.app.UserReviewResponse
 import com.sotti.kindergarten.dto.app.UserReviewUpdateRequest
@@ -26,6 +27,15 @@ import java.util.UUID
 class AppUserReviewController(
     private val userReviewService: UserReviewService,
 ) {
+    @GetMapping("/recent")
+    fun getRecentReviews(
+        @RequestParam(required = false) centerIds: String?,
+        @RequestParam(required = false, defaultValue = "3") size: Int,
+    ): PageResponse<RecentUserReviewResponse> {
+        val ids = centerIds?.split(",")?.mapNotNull { runCatching { UUID.fromString(it.trim()) }.getOrNull() }
+        return userReviewService.getRecentReviews(ids, size)
+    }
+
     @GetMapping("/centers/{centerId}")
     fun getReviews(
         @PathVariable centerId: UUID,

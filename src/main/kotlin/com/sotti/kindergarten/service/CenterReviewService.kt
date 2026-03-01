@@ -119,8 +119,9 @@ class CenterReviewService(
             return PageResponse(content = emptyList(), page = 0, size = size, totalElements = 0, totalPages = 0)
         }
 
-        val reviews = centerReviewRepository
-            .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
+        val reviews =
+            centerReviewRepository
+                .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
         val content = reviews.content.map { it.toRecentResponse() }
         return PageResponse(
             content = content,
@@ -131,7 +132,6 @@ class CenterReviewService(
         )
     }
 
-    @Transactional
     fun syncReviews(centerId: UUID) {
         val center =
             centerRepository.findById(centerId).orElseThrow {
@@ -143,8 +143,16 @@ class CenterReviewService(
 
         val reviews = runBlocking { fetchReviews(baseQuery, center) }
 
+        saveReviews(centerId, reviews, center.name)
+    }
+
+    @Transactional
+    fun saveReviews(
+        centerId: UUID,
+        reviews: List<CenterReview>,
+        centerName: String,
+    ) {
         centerReviewRepository.deleteAllByCenterId(centerId)
-        centerReviewRepository.flush()
 
         val savedCount =
             reviews.count { review ->
@@ -153,7 +161,7 @@ class CenterReviewService(
                     .isSuccess
             }
 
-        logger.info("Synced {}/{} reviews for center: {}", savedCount, reviews.size, center.name)
+        logger.info("Synced {}/{} reviews for center: {}", savedCount, reviews.size, centerName)
     }
 
     fun syncReviewsByRegion(sidoName: String) {

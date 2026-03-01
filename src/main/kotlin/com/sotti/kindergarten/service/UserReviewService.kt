@@ -1,6 +1,7 @@
 package com.sotti.kindergarten.service
 
 import com.sotti.kindergarten.dto.PageResponse
+import com.sotti.kindergarten.dto.app.RecentUserReviewResponse
 import com.sotti.kindergarten.dto.app.UserReviewCreateRequest
 import com.sotti.kindergarten.dto.app.UserReviewResponse
 import com.sotti.kindergarten.dto.app.UserReviewUpdateRequest
@@ -49,6 +50,39 @@ class UserReviewService(
             size = reviewPage.size,
             totalElements = reviewPage.totalElements,
             totalPages = reviewPage.totalPages,
+        )
+    }
+
+    fun getRecentReviews(
+        centerIds: List<UUID>?,
+        size: Int,
+    ): PageResponse<RecentUserReviewResponse> {
+        if (centerIds.isNullOrEmpty()) {
+            return PageResponse(content = emptyList(), page = 0, size = size, totalElements = 0, totalPages = 0)
+        }
+
+        val reviews =
+            userReviewRepository.findByCenterIdInOrderByCreatedAtDesc(
+                centerIds,
+                PageRequest.of(0, size),
+            )
+        val content =
+            reviews.content.map { review ->
+                RecentUserReviewResponse(
+                    id = review.id!!,
+                    centerId = review.center.id!!,
+                    centerName = review.center.name,
+                    nickname = review.nickname,
+                    content = review.content,
+                    createdAt = review.createdAt,
+                )
+            }
+        return PageResponse(
+            content = content,
+            page = 0,
+            size = size,
+            totalElements = content.size.toLong(),
+            totalPages = 1,
         )
     }
 

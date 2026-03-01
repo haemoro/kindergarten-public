@@ -35,6 +35,7 @@ import org.springframework.cache.annotation.Caching
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -44,6 +45,7 @@ class AdminService(
     private val centerRepository: CenterRepository,
     private val crawlHistoryRepository: CrawlHistoryRepository,
     private val dataSyncService: DataSyncService,
+    private val transactionTemplate: TransactionTemplate,
 ) {
     private val logger = LoggerFactory.getLogger(AdminService::class.java)
 
@@ -164,19 +166,23 @@ class AdminService(
                     } else {
                         dataSyncService.syncAllData()
                     }
-                val history = crawlHistoryRepository.findById(crawlHistoryId).get()
-                history.status = CrawlStatus.SUCCESS
-                history.itemCount = count
-                history.finishedAt = LocalDateTime.now()
-                crawlHistoryRepository.save(history)
+                transactionTemplate.execute {
+                    val history = crawlHistoryRepository.findById(crawlHistoryId).get()
+                    history.status = CrawlStatus.SUCCESS
+                    history.itemCount = count
+                    history.finishedAt = LocalDateTime.now()
+                    crawlHistoryRepository.save(history)
+                }
             } catch (e: Exception) {
                 logger.error("Crawl failed: ${e.message}", e)
                 try {
-                    val history = crawlHistoryRepository.findById(crawlHistoryId).get()
-                    history.status = CrawlStatus.FAILED
-                    history.errorMessage = e.message
-                    history.finishedAt = LocalDateTime.now()
-                    crawlHistoryRepository.save(history)
+                    transactionTemplate.execute {
+                        val history = crawlHistoryRepository.findById(crawlHistoryId).get()
+                        history.status = CrawlStatus.FAILED
+                        history.errorMessage = e.message
+                        history.finishedAt = LocalDateTime.now()
+                        crawlHistoryRepository.save(history)
+                    }
                 } catch (saveError: Exception) {
                     logger.error(
                         "Failed to update crawl history: ${saveError.message}",
