@@ -143,6 +143,7 @@ class AdminService(
         )
     }
 
+    @Transactional
     fun triggerCrawl(request: CrawlTriggerRequest): CrawlHistoryResponse {
         if (crawlHistoryRepository.existsByStatus(CrawlStatus.RUNNING)) {
             throw BusinessException(ErrorCode.CRAWL_ALREADY_RUNNING)

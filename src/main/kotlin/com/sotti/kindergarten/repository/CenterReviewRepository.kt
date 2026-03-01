@@ -21,6 +21,17 @@ interface CenterReviewRepository : JpaRepository<CenterReview, UUID> {
 
     fun findByPostDateIsNotNullOrderByPostDateDesc(pageable: Pageable): Page<CenterReview>
 
+    @Query(
+        """
+        SELECT cr FROM CenterReview cr JOIN FETCH cr.center
+        WHERE cr.center.id IN :centerIds AND cr.postDate IS NOT NULL
+        ORDER BY cr.postDate DESC
+        """,
+        countQuery = """
+        SELECT COUNT(cr) FROM CenterReview cr
+        WHERE cr.center.id IN :centerIds AND cr.postDate IS NOT NULL
+        """,
+    )
     fun findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(
         centerIds: List<UUID>,
         pageable: Pageable,
@@ -43,21 +54,29 @@ interface CenterReviewRepository : JpaRepository<CenterReview, UUID> {
     @Query(
         value = """
             WITH ranked AS (
-                SELECT c.id AS center_id, c.name, c.address, c.establish_type,
+                SELECT c.id AS center_id, c.name, c.address,
+                       c.establish_type,
                        cr.snippet,
-                       COUNT(*) OVER (PARTITION BY c.id) AS review_count,
-                       ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY cr.post_date DESC NULLS LAST) AS rn
+                       COUNT(*) OVER (PARTITION BY c.id)
+                           AS review_count,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY c.id
+                           ORDER BY cr.post_date DESC NULLS LAST
+                       ) AS rn
                 FROM center_review cr
                 JOIN center c ON c.id = cr.center_id
                 WHERE cr.snippet IS NOT NULL AND cr.snippet != ''
-                GROUP BY c.id, c.name, c.address, c.establish_type, cr.id, cr.snippet, cr.post_date
+                GROUP BY c.id, c.name, c.address,
+                         c.establish_type, cr.id,
+                         cr.snippet, cr.post_date
             )
-            SELECT center_id, name, address, establish_type, review_count, snippet
+            SELECT center_id, name, address, establish_type,
+                   review_count, snippet
             FROM ranked
             WHERE review_count >= :minCount AND rn <= 5
             ORDER BY review_count DESC, center_id, rn
             """,
         nativeQuery = true,
     )
-    fun findRichTargetsRaw(minCount: Long): List<Array<Any>>
+    fun findRichTargetsRaw(minCount: Long): List<Array<Any?>>
 }

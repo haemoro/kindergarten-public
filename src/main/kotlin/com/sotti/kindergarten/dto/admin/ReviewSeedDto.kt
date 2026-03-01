@@ -1,5 +1,7 @@
 package com.sotti.kindergarten.dto.admin
 
+import jakarta.validation.constraints.Max
+import jakarta.validation.constraints.Min
 import java.util.UUID
 
 data class ReviewSeedTargetResponse(
@@ -41,7 +43,9 @@ data class ReviewSeedStatusResponse(
 )
 
 data class BatchSeedRequest(
-    val count: Int = 100,
+    @field:Min(1)
+    @field:Max(500)
+    val count: Int = 10,
 )
 
 data class BatchSeedResponse(

@@ -21,10 +21,12 @@ import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 @Service
@@ -32,12 +34,12 @@ class CenterReviewService(
     private val centerReviewRepository: CenterReviewRepository,
     private val centerRepository: CenterRepository,
     private val naverSearchClient: NaverSearchClient,
+    private val transactionTemplate: TransactionTemplate,
 ) {
     private val logger = LoggerFactory.getLogger(CenterReviewService::class.java)
 
     // Async sync progress tracking
-    @Volatile
-    private var asyncSyncRunning = false
+    private val asyncSyncRunning = AtomicBoolean(false)
     private val asyncCompleted = AtomicInteger(0)
     private val asyncFailed = AtomicInteger(0)
     private val asyncTotal = AtomicInteger(0)
@@ -116,19 +118,28 @@ class CenterReviewService(
         size: Int,
     ): PageResponse<RecentReviewResponse> {
         if (centerIds.isNullOrEmpty()) {
-            return PageResponse(content = emptyList(), page = 0, size = size, totalElements = 0, totalPages = 0)
+            return PageResponse(
+                content = emptyList(),
+                page = 0,
+                size = size,
+                totalElements = 0,
+                totalPages = 0,
+            )
         }
 
         val reviews =
             centerReviewRepository
-                .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(centerIds, PageRequest.of(0, size))
+                .findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(
+                    centerIds,
+                    PageRequest.of(0, size),
+                )
         val content = reviews.content.map { it.toRecentResponse() }
         return PageResponse(
             content = content,
             page = 0,
             size = size,
-            totalElements = content.size.toLong(),
-            totalPages = 1,
+            totalElements = reviews.totalElements,
+            totalPages = reviews.totalPages,
         )
     }
 
@@ -139,34 +150,58 @@ class CenterReviewService(
             }
 
         val baseQuery = buildBaseQuery(center)
-        logger.info("Syncing reviews for center: {} (query: {})", center.name, baseQuery)
+        logger.info(
+            "Syncing reviews for center: {} (query: {})",
+            center.name,
+            baseQuery,
+        )
 
         val reviews = runBlocking { fetchReviews(baseQuery, center) }
 
-        saveReviews(centerId, reviews, center.name)
-    }
+        transactionTemplate.execute {
+            val managedCenter =
+                centerRepository.getReferenceById(centerId)
+            centerReviewRepository.deleteAllByCenterId(centerId)
+            centerReviewRepository.flush()
 
-    @Transactional
-    fun saveReviews(
-        centerId: UUID,
-        reviews: List<CenterReview>,
-        centerName: String,
-    ) {
-        centerReviewRepository.deleteAllByCenterId(centerId)
+            val savedCount =
+                reviews.count { review ->
+                    val managedReview =
+                        CenterReview(
+                            center = managedCenter,
+                            title = review.title,
+                            link = review.link,
+                            snippet = review.snippet,
+                            source = review.source,
+                            postDate = review.postDate,
+                        )
+                    runCatching {
+                        centerReviewRepository.save(managedReview)
+                    }.onFailure {
+                        logger.warn(
+                            "Failed to save review (link={}): {}",
+                            review.link,
+                            it.message,
+                        )
+                    }.isSuccess
+                }
 
-        val savedCount =
-            reviews.count { review ->
-                runCatching { centerReviewRepository.save(review) }
-                    .onFailure { logger.warn("Failed to save review (link={}): {}", review.link, it.message) }
-                    .isSuccess
-            }
-
-        logger.info("Synced {}/{} reviews for center: {}", savedCount, reviews.size, centerName)
+            logger.info(
+                "Synced {}/{} reviews for center: {}",
+                savedCount,
+                reviews.size,
+                center.name,
+            )
+        }
     }
 
     fun syncReviewsByRegion(sidoName: String) {
         val centers = centerRepository.findAllByAddressStartingWith(sidoName)
-        logger.info("Starting review sync for {} centers in {}", centers.size, sidoName)
+        logger.info(
+            "Starting review sync for {} centers in {}",
+            centers.size,
+            sidoName,
+        )
         syncCenters(centers, sidoName)
     }
 
@@ -177,19 +212,23 @@ class CenterReviewService(
     }
 
     fun syncReviewsByRegionAsync(sidoName: String): Map<String, Any> {
-        if (asyncSyncRunning) {
+        if (!asyncSyncRunning.compareAndSet(false, true)) {
             return mapOf(
                 "status" to "already_running",
                 "message" to "이미 동기화가 진행 중입니다 ($asyncSyncLabel)",
             )
         }
 
-        val projections = centerRepository.findIdNameAddressByAddressPrefix(sidoName)
+        val projections =
+            centerRepository.findIdNameAddressByAddressPrefix(sidoName)
         val estimatedApiCalls = projections.size * API_CALLS_PER_CENTER
         if (estimatedApiCalls > DAILY_API_LIMIT) {
+            asyncSyncRunning.set(false)
             return mapOf(
                 "status" to "rejected",
-                "message" to "API 호출 한도 초과 예상: ${estimatedApiCalls}건 > ${DAILY_API_LIMIT}건",
+                "message" to
+                    "API 호출 한도 초과 예상: " +
+                    "${estimatedApiCalls}건 > ${DAILY_API_LIMIT}건",
             )
         }
 
@@ -198,26 +237,31 @@ class CenterReviewService(
 
         return mapOf(
             "status" to "started",
-            "message" to "$sidoName ${projections.size}개 유치원 병렬 동기화 시작",
+            "message" to
+                "$sidoName ${projections.size}개 유치원 병렬 동기화 시작",
             "totalCenters" to projections.size,
             "estimatedApiCalls" to estimatedApiCalls,
         )
     }
 
     fun syncAllReviewsAsync(): Map<String, Any> {
-        if (asyncSyncRunning) {
+        if (!asyncSyncRunning.compareAndSet(false, true)) {
             return mapOf(
                 "status" to "already_running",
                 "message" to "이미 동기화가 진행 중입니다 ($asyncSyncLabel)",
             )
         }
 
-        val projections = centerRepository.findIdNameAddressByAddressPrefix("")
+        val projections =
+            centerRepository.findIdNameAddressByAddressPrefix("")
         val estimatedApiCalls = projections.size * API_CALLS_PER_CENTER
         if (estimatedApiCalls > DAILY_API_LIMIT) {
+            asyncSyncRunning.set(false)
             return mapOf(
                 "status" to "rejected",
-                "message" to "API 호출 한도 초과 예상: ${estimatedApiCalls}건 > ${DAILY_API_LIMIT}건",
+                "message" to
+                    "API 호출 한도 초과 예상: " +
+                    "${estimatedApiCalls}건 > ${DAILY_API_LIMIT}건",
             )
         }
 
@@ -226,7 +270,8 @@ class CenterReviewService(
 
         return mapOf(
             "status" to "started",
-            "message" to "전체 ${projections.size}개 유치원 병렬 동기화 시작",
+            "message" to
+                "전체 ${projections.size}개 유치원 병렬 동기화 시작",
             "totalCenters" to projections.size,
             "estimatedApiCalls" to estimatedApiCalls,
         )
@@ -237,19 +282,20 @@ class CenterReviewService(
         total: Int,
         label: String,
     ) {
-        asyncSyncRunning = true
         asyncCompleted.set(0)
         asyncFailed.set(0)
         asyncTotal.set(total)
         asyncSyncLabel = label
         asyncSyncStartedAt = LocalDateTime.now()
 
-        Thread { syncCenterIdsParallel(centerIds, label) }.apply { isDaemon = true }.start()
+        Thread { syncCenterIdsParallel(centerIds, label) }
+            .apply { isDaemon = true }
+            .start()
     }
 
     fun getAsyncSyncStatus(): Map<String, Any?> =
         mapOf(
-            "running" to asyncSyncRunning,
+            "running" to asyncSyncRunning.get(),
             "label" to asyncSyncLabel,
             "completed" to asyncCompleted.get(),
             "failed" to asyncFailed.get(),
@@ -257,7 +303,8 @@ class CenterReviewService(
             "startedAt" to asyncSyncStartedAt,
             "progress" to
                 if (asyncTotal.get() > 0) {
-                    "${(asyncCompleted.get() + asyncFailed.get()) * 100 / asyncTotal.get()}%"
+                    val done = asyncCompleted.get() + asyncFailed.get()
+                    "${done * 100 / asyncTotal.get()}%"
                 } else {
                     "0%"
                 },
@@ -268,7 +315,8 @@ class CenterReviewService(
         label: String,
     ) {
         logger.info(
-            "Starting parallel review sync for {} centers ({}, concurrency={})",
+            "Starting parallel review sync for {} centers" +
+                " ({}, concurrency={})",
             centerIds.size,
             label,
             PARALLEL_CONCURRENCY,
@@ -282,16 +330,19 @@ class CenterReviewService(
                         .map { centerId ->
                             async {
                                 semaphore.withPermit {
-                                    runCatching { syncReviews(centerId) }
-                                        .onSuccess { asyncCompleted.incrementAndGet() }
-                                        .onFailure { e ->
-                                            asyncFailed.incrementAndGet()
-                                            logger.error(
-                                                "Failed to sync reviews for {}: {}",
-                                                centerId,
-                                                e.message,
-                                            )
-                                        }
+                                    runCatching {
+                                        syncReviews(centerId)
+                                    }.onSuccess {
+                                        asyncCompleted.incrementAndGet()
+                                    }.onFailure { e ->
+                                        asyncFailed.incrementAndGet()
+                                        logger.error(
+                                            "Failed to sync reviews" +
+                                                " for {}: {}",
+                                            centerId,
+                                            e.message,
+                                        )
+                                    }
                                     delay(SYNC_DELAY_MS)
                                 }
                             }
@@ -299,9 +350,10 @@ class CenterReviewService(
                 }
             }
         } finally {
-            asyncSyncRunning = false
+            asyncSyncRunning.set(false)
             logger.info(
-                "Parallel review sync completed ({}). success={}, failed={}, total={}",
+                "Parallel review sync completed ({})." +
+                    " success={}, failed={}, total={}",
                 label,
                 asyncCompleted.get(),
                 asyncFailed.get(),
@@ -322,11 +374,21 @@ class CenterReviewService(
                 .onSuccess { successCount++ }
                 .onFailure { e ->
                     failCount++
-                    logger.error("Failed to sync reviews for center {} ({}): {}", center.name, center.id, e.message)
+                    logger.error(
+                        "Failed to sync reviews for center {} ({}): {}",
+                        center.name,
+                        center.id,
+                        e.message,
+                    )
                 }
 
             if ((index + 1) % 10 == 0) {
-                logger.info("[{}/{}] Review sync progress ({})", index + 1, centers.size, label)
+                logger.info(
+                    "[{}/{}] Review sync progress ({})",
+                    index + 1,
+                    centers.size,
+                    label,
+                )
             }
         }
 
@@ -347,11 +409,9 @@ class CenterReviewService(
         val seenLinks = mutableSetOf<String>()
         val results = mutableListOf<CenterReview>()
 
-        // 1차: "유치원명" 구 후기 → 정확한 리뷰 우선
         results += searchBoth(reviewQuery, center, seenLinks)
         delay(SYNC_DELAY_MS)
 
-        // 2차: "유치원명" 구 → 후기 키워드 없는 글 보충
         results += searchBoth(baseQuery, center, seenLinks)
 
         return results
@@ -391,7 +451,9 @@ class CenterReviewService(
         val text = "$cleanTitle ${description.stripHtmlTags()}"
         if (EXCLUDE_KEYWORDS.any { text.contains(it) }) return false
         val date = postdate.toLocalDate()
-        if (date != null && date.isBefore(LocalDate.now().minusYears(1))) return false
+        if (date != null && date.isBefore(LocalDate.now().minusYears(1))) {
+            return false
+        }
         return true
     }
 
@@ -449,5 +511,8 @@ class CenterReviewService(
             .replace("&quot;", "\"")
             .replace("&#39;", "'")
 
-    private fun String?.toLocalDate(): LocalDate? = runCatching { this?.let { LocalDate.parse(it, POST_DATE_FORMAT) } }.getOrNull()
+    private fun String?.toLocalDate(): LocalDate? =
+        runCatching {
+            this?.let { LocalDate.parse(it, POST_DATE_FORMAT) }
+        }.getOrNull()
 }

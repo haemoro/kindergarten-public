@@ -81,8 +81,8 @@ class UserReviewService(
             content = content,
             page = 0,
             size = size,
-            totalElements = content.size.toLong(),
-            totalPages = 1,
+            totalElements = reviews.totalElements,
+            totalPages = reviews.totalPages,
         )
     }
 

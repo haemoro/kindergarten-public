@@ -8,6 +8,7 @@ import com.sotti.kindergarten.dto.admin.ReviewSeedStatusResponse
 import com.sotti.kindergarten.dto.admin.ReviewSeedTargetsResponse
 import com.sotti.kindergarten.dto.admin.RichTargetsResponse
 import com.sotti.kindergarten.service.ReviewSeedService
+import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -18,13 +19,13 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@RequestMapping("/api/v1/admin/review-seed")
+@RequestMapping("/api/admin/review-seed")
 class AdminReviewSeedController(
     private val reviewSeedService: ReviewSeedService,
 ) {
     @PostMapping("/batch")
     fun batchSeed(
-        @RequestBody request: BatchSeedRequest,
+        @Valid @RequestBody request: BatchSeedRequest,
     ): ResponseEntity<BatchSeedResponse> =
         ResponseEntity
             .status(HttpStatus.CREATED)

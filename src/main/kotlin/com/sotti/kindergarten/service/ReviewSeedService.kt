@@ -71,14 +71,14 @@ class ReviewSeedService(
     fun getRichTargets(count: Int): RichTargetsResponse {
         val rows = centerReviewRepository.findRichTargetsRaw(minCount = 3L)
 
-        val grouped = linkedMapOf<UUID, MutableList<Array<Any>>>()
+        val grouped = linkedMapOf<UUID, MutableList<Array<Any?>>>()
         for (row in rows) {
             val centerId = row[0] as UUID
             grouped.getOrPut(centerId) { mutableListOf() }.add(row)
         }
 
-        val targets =
-            grouped.entries.take(count).map { (centerId, rowGroup) ->
+        val allTargets =
+            grouped.entries.map { (centerId, rowGroup) ->
                 val first = rowGroup[0]
                 RichTargetResponse(
                     centerId = centerId,
@@ -91,8 +91,8 @@ class ReviewSeedService(
             }
 
         return RichTargetsResponse(
-            targets = targets,
-            totalFound = targets.size,
+            targets = allTargets.take(count),
+            totalFound = allTargets.size,
         )
     }
 
@@ -109,6 +109,10 @@ class ReviewSeedService(
         log.info("시딩 시작: ${targets.size}건")
         val now = LocalDateTime.now()
         val results = mutableListOf<ReviewSeedSaveResponse>()
+        val centerMap =
+            centerRepository
+                .findAllById(targets.map { it.centerId })
+                .associateBy { it.id }
 
         for (target in targets) {
             val content = generateReviewContent(target)
@@ -116,10 +120,7 @@ class ReviewSeedService(
             val deviceId = "seed-${UUID.randomUUID()}"
             val pastDate = randomPastDate(now)
 
-            val center =
-                centerRepository
-                    .findById(target.centerId)
-                    .orElse(null) ?: continue
+            val center = centerMap[target.centerId] ?: continue
 
             val review =
                 UserReview(
@@ -155,9 +156,10 @@ class ReviewSeedService(
     }
 
     private fun fetchAllTargets(count: Int): List<ReviewSeedTargetResponse> {
+        // "%" matches all addresses (all sido regions)
         val rows =
             centerRepository.findCentersWithoutReviewBySido(
-                sidoName = "%%",
+                sidoName = "%",
                 offset = 0,
                 limit = count,
             )
@@ -384,10 +386,11 @@ class ReviewSeedService(
             .map { it.sidoName }
             .distinct()
 
-    private fun getOrCreateState(): ReviewSeedState = reviewSeedStateRepository.findByKey(STATE_KEY) ?: ReviewSeedState(key = STATE_KEY)
+    private fun getOrCreateState(): ReviewSeedState =
+        reviewSeedStateRepository.findByKey(STATE_KEY)
+            ?: reviewSeedStateRepository.save(ReviewSeedState(key = STATE_KEY))
 
-    @Transactional
-    fun advanceState() {
+    private fun advanceState() {
         val sidoList = getDistinctSidoNames()
         if (sidoList.isEmpty()) return
 
