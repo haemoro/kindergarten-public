@@ -7,6 +7,7 @@ import com.sotti.kindergarten.entity.UserReview
 import com.sotti.kindergarten.exception.BusinessException
 import com.sotti.kindergarten.exception.ErrorCode
 import com.sotti.kindergarten.repository.CenterRepository
+import com.sotti.kindergarten.repository.UserReviewProjection
 import com.sotti.kindergarten.repository.UserReviewRepository
 import com.sotti.kindergarten.util.ProfanityFilter
 import io.kotest.assertions.throwables.shouldThrow
@@ -17,6 +18,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
+import java.time.LocalDateTime
 import java.util.Optional
 import java.util.UUID
 
@@ -37,17 +39,19 @@ class UserReviewServiceTest :
         }
 
         Given("한줄평 목록 조회") {
-            val review = mockk<UserReview>(relaxed = true)
-            every { review.id } returns UUID.randomUUID()
-            every { review.center } returns center
-            every { review.deviceId } returns deviceId
-            every { review.nickname } returns "테스터"
-            every { review.content } returns "좋은 유치원이에요"
+            val reviewId = UUID.randomUUID()
+            val projection = mockk<UserReviewProjection>()
+            every { projection.getId() } returns reviewId
+            every { projection.getCenterId() } returns centerId
+            every { projection.getDeviceId() } returns deviceId
+            every { projection.getNickname() } returns "테스터"
+            every { projection.getContent() } returns "좋은 유치원이에요"
+            every { projection.getCreatedAt() } returns LocalDateTime.now()
 
             val pageable = PageRequest.of(0, 20)
             every {
-                userReviewRepository.findAllByCenterIdWithCenter(centerId, pageable)
-            } returns PageImpl(listOf(review), pageable, 1)
+                userReviewRepository.findAllByCenterId(centerId, pageable)
+            } returns PageImpl(listOf(projection), pageable, 1)
 
             When("본인 deviceId로 조회") {
                 val result = service.getReviews(centerId, deviceId, 0, 20)

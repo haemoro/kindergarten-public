@@ -14,13 +14,20 @@ import java.util.UUID
 @Repository
 interface UserReviewRepository : JpaRepository<UserReview, UUID> {
     @Query(
-        value = "SELECT r FROM UserReview r JOIN FETCH r.center WHERE r.center.id = :centerId ORDER BY r.createdAt DESC",
-        countQuery = "SELECT COUNT(r) FROM UserReview r WHERE r.center.id = :centerId",
+        value = """
+            SELECT r.id, r.center_id AS centerId, r.device_id AS deviceId,
+                   r.nickname, r.content, r.created_at AS createdAt
+            FROM user_review r
+            WHERE r.center_id = :centerId
+            ORDER BY r.created_at DESC
+        """,
+        countQuery = "SELECT COUNT(*) FROM user_review WHERE center_id = :centerId",
+        nativeQuery = true,
     )
-    fun findAllByCenterIdWithCenter(
+    fun findAllByCenterId(
         @Param("centerId") centerId: UUID,
         pageable: Pageable,
-    ): Page<UserReview>
+    ): Page<UserReviewProjection>
 
     fun existsByDeviceIdAndCenterId(
         deviceId: String,
@@ -38,12 +45,21 @@ interface UserReviewRepository : JpaRepository<UserReview, UUID> {
     ): Int
 
     @Query(
-        "SELECT r FROM UserReview r JOIN FETCH r.center WHERE r.center.id IN :centerIds ORDER BY r.createdAt DESC",
+        value = """
+            SELECT r.id, r.center_id AS centerId, c.name AS centerName,
+                   r.nickname, r.content, r.created_at AS createdAt
+            FROM user_review r
+            JOIN center c ON c.id = r.center_id
+            WHERE r.center_id IN (:centerIds)
+            ORDER BY r.created_at DESC
+            LIMIT :size
+        """,
+        nativeQuery = true,
     )
     fun findRecentByCenterIds(
         @Param("centerIds") centerIds: List<UUID>,
-        pageable: Pageable,
-    ): List<UserReview>
+        @Param("size") size: Int,
+    ): List<RecentUserReviewProjection>
 
     @Modifying
     @Query(
@@ -55,4 +71,32 @@ interface UserReviewRepository : JpaRepository<UserReview, UUID> {
         @Param("createdAt") createdAt: LocalDateTime,
         @Param("updatedAt") updatedAt: LocalDateTime,
     ): Int
+}
+
+interface UserReviewProjection {
+    fun getId(): UUID
+
+    fun getCenterId(): UUID
+
+    fun getDeviceId(): String
+
+    fun getNickname(): String
+
+    fun getContent(): String
+
+    fun getCreatedAt(): LocalDateTime
+}
+
+interface RecentUserReviewProjection {
+    fun getId(): UUID
+
+    fun getCenterId(): UUID
+
+    fun getCenterName(): String
+
+    fun getNickname(): String
+
+    fun getContent(): String
+
+    fun getCreatedAt(): LocalDateTime
 }

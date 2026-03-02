@@ -129,11 +129,19 @@ class CenterReviewService(
 
         val reviews =
             centerReviewRepository
-                .findRecentByCenterIds(
-                    centerIds,
-                    PageRequest.of(0, size),
+                .findRecentByCenterIds(centerIds, size)
+        val content =
+            reviews.map { row ->
+                RecentReviewResponse(
+                    centerId = row.getCenterId(),
+                    centerName = row.getCenterName(),
+                    title = row.getTitle(),
+                    link = row.getLink(),
+                    snippet = row.getSnippet(),
+                    source = row.getSource(),
+                    postDate = row.getPostDate(),
                 )
-        val content = reviews.map { it.toRecentResponse() }
+            }
         return PageResponse(
             content = content,
             page = 0,

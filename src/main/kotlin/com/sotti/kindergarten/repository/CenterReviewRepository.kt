@@ -5,6 +5,8 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
+import java.time.LocalDate
 import java.util.UUID
 
 interface CenterReviewRepository : JpaRepository<CenterReview, UUID> {
@@ -22,16 +24,21 @@ interface CenterReviewRepository : JpaRepository<CenterReview, UUID> {
     fun findByPostDateIsNotNullOrderByPostDateDesc(pageable: Pageable): Page<CenterReview>
 
     @Query(
-        """
-        SELECT cr FROM CenterReview cr JOIN FETCH cr.center
-        WHERE cr.center.id IN :centerIds AND cr.postDate IS NOT NULL
-        ORDER BY cr.postDate DESC
+        value = """
+            SELECT cr.id, cr.center_id AS centerId, c.name AS centerName,
+                   cr.title, cr.link, cr.snippet, cr.source, cr.post_date AS postDate
+            FROM center_review cr
+            JOIN center c ON c.id = cr.center_id
+            WHERE cr.center_id IN (:centerIds) AND cr.post_date IS NOT NULL
+            ORDER BY cr.post_date DESC
+            LIMIT :size
         """,
+        nativeQuery = true,
     )
     fun findRecentByCenterIds(
-        centerIds: List<UUID>,
-        pageable: Pageable,
-    ): List<CenterReview>
+        @Param("centerIds") centerIds: List<UUID>,
+        @Param("size") size: Int,
+    ): List<RecentCenterReviewProjection>
 
     @Query(
         """
@@ -75,4 +82,22 @@ interface CenterReviewRepository : JpaRepository<CenterReview, UUID> {
         nativeQuery = true,
     )
     fun findRichTargetsRaw(minCount: Long): List<Array<Any?>>
+}
+
+interface RecentCenterReviewProjection {
+    fun getId(): UUID
+
+    fun getCenterId(): UUID
+
+    fun getCenterName(): String
+
+    fun getTitle(): String
+
+    fun getLink(): String
+
+    fun getSnippet(): String
+
+    fun getSource(): String
+
+    fun getPostDate(): LocalDate
 }

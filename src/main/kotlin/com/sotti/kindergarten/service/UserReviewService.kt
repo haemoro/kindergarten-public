@@ -29,18 +29,17 @@ class UserReviewService(
         page: Int,
         size: Int,
     ): PageResponse<UserReviewResponse> {
-        val pageable = PageRequest.of(page, size)
-        val reviewPage = userReviewRepository.findAllByCenterIdWithCenter(centerId, pageable)
+        val reviewPage = userReviewRepository.findAllByCenterId(centerId, PageRequest.of(page, size))
 
         val content =
-            reviewPage.content.map { review ->
+            reviewPage.content.map { row ->
                 UserReviewResponse(
-                    id = review.id!!,
-                    centerId = review.center.id!!,
-                    nickname = review.nickname,
-                    content = review.content,
-                    isMine = deviceId != null && review.deviceId == deviceId,
-                    createdAt = review.createdAt,
+                    id = row.getId(),
+                    centerId = row.getCenterId(),
+                    nickname = row.getNickname(),
+                    content = row.getContent(),
+                    isMine = deviceId != null && row.getDeviceId() == deviceId,
+                    createdAt = row.getCreatedAt(),
                 )
             }
 
@@ -61,20 +60,16 @@ class UserReviewService(
             return PageResponse(content = emptyList(), page = 0, size = size, totalElements = 0, totalPages = 0)
         }
 
-        val reviews =
-            userReviewRepository.findRecentByCenterIds(
-                centerIds,
-                PageRequest.of(0, size),
-            )
+        val reviews = userReviewRepository.findRecentByCenterIds(centerIds, size)
         val content =
-            reviews.map { review ->
+            reviews.map { row ->
                 RecentUserReviewResponse(
-                    id = review.id!!,
-                    centerId = review.center.id!!,
-                    centerName = review.center.name,
-                    nickname = review.nickname,
-                    content = review.content,
-                    createdAt = review.createdAt,
+                    id = row.getId(),
+                    centerId = row.getCenterId(),
+                    centerName = row.getCenterName(),
+                    nickname = row.getNickname(),
+                    content = row.getContent(),
+                    createdAt = row.getCreatedAt(),
                 )
             }
         return PageResponse(
