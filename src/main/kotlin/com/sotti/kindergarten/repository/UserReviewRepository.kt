@@ -38,13 +38,12 @@ interface UserReviewRepository : JpaRepository<UserReview, UUID> {
     ): Int
 
     @Query(
-        value = "SELECT r FROM UserReview r JOIN FETCH r.center WHERE r.center.id IN :centerIds ORDER BY r.createdAt DESC",
-        countQuery = "SELECT COUNT(r) FROM UserReview r WHERE r.center.id IN :centerIds",
+        "SELECT r FROM UserReview r JOIN FETCH r.center WHERE r.center.id IN :centerIds ORDER BY r.createdAt DESC",
     )
-    fun findByCenterIdInOrderByCreatedAtDesc(
+    fun findRecentByCenterIds(
         @Param("centerIds") centerIds: List<UUID>,
         pageable: Pageable,
-    ): Page<UserReview>
+    ): List<UserReview>
 
     @Modifying
     @Query(

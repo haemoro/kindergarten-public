@@ -62,12 +62,12 @@ class UserReviewService(
         }
 
         val reviews =
-            userReviewRepository.findByCenterIdInOrderByCreatedAtDesc(
+            userReviewRepository.findRecentByCenterIds(
                 centerIds,
                 PageRequest.of(0, size),
             )
         val content =
-            reviews.content.map { review ->
+            reviews.map { review ->
                 RecentUserReviewResponse(
                     id = review.id!!,
                     centerId = review.center.id!!,
@@ -81,8 +81,8 @@ class UserReviewService(
             content = content,
             page = 0,
             size = size,
-            totalElements = reviews.totalElements,
-            totalPages = reviews.totalPages,
+            totalElements = content.size.toLong(),
+            totalPages = 1,
         )
     }
 

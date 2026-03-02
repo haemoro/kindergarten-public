@@ -27,15 +27,11 @@ interface CenterReviewRepository : JpaRepository<CenterReview, UUID> {
         WHERE cr.center.id IN :centerIds AND cr.postDate IS NOT NULL
         ORDER BY cr.postDate DESC
         """,
-        countQuery = """
-        SELECT COUNT(cr) FROM CenterReview cr
-        WHERE cr.center.id IN :centerIds AND cr.postDate IS NOT NULL
-        """,
     )
-    fun findByCenterIdInAndPostDateIsNotNullOrderByPostDateDesc(
+    fun findRecentByCenterIds(
         centerIds: List<UUID>,
         pageable: Pageable,
-    ): Page<CenterReview>
+    ): List<CenterReview>
 
     @Query(
         """
