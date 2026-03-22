@@ -1,7 +1,10 @@
 # 유치원 정보 API 서버
 
+> **[우리동네 유치원 UYU](https://apps.apple.com/kr/app/%EC%9A%B0%EB%A6%AC%EB%8F%99%EB%84%A4-%EC%9C%A0%EC%B9%98%EC%9B%90-uyu-%EC%9C%A0%EC%B9%98%EC%9B%90-%EC%95%8C%EB%A6%AC%EB%AF%B8/id6759513618)** 앱의 백엔드 서버입니다.
+> App Store에서 다운로드 가능합니다.
+
 전국 유치원·어린이집 공공데이터를 수집·제공하는 Spring Boot REST API 서버입니다.
-Flutter 앱의 백엔드로 동작하며, 유치원 검색/상세조회/비교/즐겨찾기/리뷰 기능을 제공합니다.
+유치원 검색/상세조회/비교/즐겨찾기/리뷰 기능을 제공합니다.
 
 ## Tech Stack
 
