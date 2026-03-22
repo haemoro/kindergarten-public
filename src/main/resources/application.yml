@@ -42,5 +42,5 @@ logging:
     com.sotti.kindergarten: DEBUG
 
 jwt:
-  secret: kindergarten-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256
+  secret: ${JWT_SECRET}
   expiration-ms: 86400000
