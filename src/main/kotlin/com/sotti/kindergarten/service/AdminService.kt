@@ -29,6 +29,7 @@ import com.sotti.kindergarten.exception.BusinessException
 import com.sotti.kindergarten.exception.ErrorCode
 import com.sotti.kindergarten.repository.CenterRepository
 import com.sotti.kindergarten.repository.CrawlHistoryRepository
+import com.sotti.kindergarten.util.toPageResponse
 import org.slf4j.LoggerFactory
 import org.springframework.cache.annotation.CacheEvict
 import org.springframework.cache.annotation.Caching
@@ -67,15 +68,7 @@ class AdminService(
                 pageable = pageable,
             )
 
-        val content = centersPage.content.map { it.toAdminListResponse() }
-
-        return PageResponse(
-            content = content,
-            page = centersPage.number,
-            size = centersPage.size,
-            totalElements = centersPage.totalElements,
-            totalPages = centersPage.totalPages,
-        )
+        return centersPage.toPageResponse { it.toAdminListResponse() }
     }
 
     fun getKindergartenDetail(id: UUID): AdminKindergartenDetailResponse {
@@ -132,15 +125,7 @@ class AdminService(
         val pageable = PageRequest.of(page, size)
         val historiesPage = crawlHistoryRepository.findAllByOrderByStartedAtDesc(pageable)
 
-        val content = historiesPage.content.map { it.toCrawlHistoryResponse() }
-
-        return PageResponse(
-            content = content,
-            page = historiesPage.number,
-            size = historiesPage.size,
-            totalElements = historiesPage.totalElements,
-            totalPages = historiesPage.totalPages,
-        )
+        return historiesPage.toPageResponse { it.toCrawlHistoryResponse() }
     }
 
     @Transactional

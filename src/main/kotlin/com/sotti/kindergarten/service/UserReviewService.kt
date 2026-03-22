@@ -11,6 +11,7 @@ import com.sotti.kindergarten.exception.ErrorCode
 import com.sotti.kindergarten.repository.CenterRepository
 import com.sotti.kindergarten.repository.UserReviewRepository
 import com.sotti.kindergarten.util.ProfanityFilter
+import com.sotti.kindergarten.util.toPageResponse
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -31,25 +32,16 @@ class UserReviewService(
     ): PageResponse<UserReviewResponse> {
         val reviewPage = userReviewRepository.findAllByCenterId(centerId, PageRequest.of(page, size))
 
-        val content =
-            reviewPage.content.map { row ->
-                UserReviewResponse(
-                    id = row.getId(),
-                    centerId = row.getCenterId(),
-                    nickname = row.getNickname(),
-                    content = row.getContent(),
-                    isMine = deviceId != null && row.getDeviceId() == deviceId,
-                    createdAt = row.getCreatedAt(),
-                )
-            }
-
-        return PageResponse(
-            content = content,
-            page = reviewPage.number,
-            size = reviewPage.size,
-            totalElements = reviewPage.totalElements,
-            totalPages = reviewPage.totalPages,
-        )
+        return reviewPage.toPageResponse { row ->
+            UserReviewResponse(
+                id = row.getId(),
+                centerId = row.getCenterId(),
+                nickname = row.getNickname(),
+                content = row.getContent(),
+                isMine = deviceId != null && row.getDeviceId() == deviceId,
+                createdAt = row.getCreatedAt(),
+            )
+        }
     }
 
     fun getRecentReviews(

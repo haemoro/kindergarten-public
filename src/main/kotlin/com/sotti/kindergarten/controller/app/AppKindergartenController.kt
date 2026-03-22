@@ -60,7 +60,7 @@ class AppKindergartenController(
         @RequestParam(required = false) lat: Double?,
         @RequestParam(required = false) lng: Double?,
     ): AppCompareResponse {
-        val centerIds = ids.split(",").map { UUID.fromString(it.trim()) }
+        val centerIds = ids.split(",").mapNotNull { runCatching { UUID.fromString(it.trim()) }.getOrNull() }
         return centerService.compareActiveKindergartens(centerIds, lat, lng)
     }
 

@@ -6,6 +6,7 @@ import com.sotti.kindergarten.dto.app.UserReviewCreateRequest
 import com.sotti.kindergarten.dto.app.UserReviewResponse
 import com.sotti.kindergarten.dto.app.UserReviewUpdateRequest
 import com.sotti.kindergarten.service.UserReviewService
+import com.sotti.kindergarten.util.parseUUIDs
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.validation.annotation.Validated
@@ -32,7 +33,7 @@ class AppUserReviewController(
         @RequestParam(required = false) centerIds: String?,
         @RequestParam(required = false, defaultValue = "3") size: Int,
     ): PageResponse<RecentUserReviewResponse> {
-        val ids = centerIds?.split(",")?.mapNotNull { runCatching { UUID.fromString(it.trim()) }.getOrNull() }
+        val ids = parseUUIDs(centerIds)
         return userReviewService.getRecentReviews(ids, size)
     }
 

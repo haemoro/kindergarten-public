@@ -9,6 +9,7 @@ import com.sotti.kindergarten.exception.DuplicateFavoriteException
 import com.sotti.kindergarten.exception.FavoriteNotFoundException
 import com.sotti.kindergarten.repository.CenterRepository
 import com.sotti.kindergarten.repository.FavoriteRepository
+import com.sotti.kindergarten.util.toPageResponse
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
@@ -29,23 +30,14 @@ class FavoriteService(
         val pageable = PageRequest.of(page, size, Sort.by("createdAt").descending())
         val favoritesPage = favoriteRepository.findAllByDeviceId(deviceId, pageable)
 
-        val content =
-            favoritesPage.content.map { favorite ->
-                FavoriteResponse(
-                    id = favorite.id!!,
-                    centerId = favorite.center.id!!,
-                    centerName = favorite.center.name,
-                    createdAt = favorite.createdAt!!,
-                )
-            }
-
-        return PageResponse(
-            content = content,
-            page = favoritesPage.number,
-            size = favoritesPage.size,
-            totalElements = favoritesPage.totalElements,
-            totalPages = favoritesPage.totalPages,
-        )
+        return favoritesPage.toPageResponse { favorite ->
+            FavoriteResponse(
+                id = favorite.id!!,
+                centerId = favorite.center.id!!,
+                centerName = favorite.center.name,
+                createdAt = favorite.createdAt!!,
+            )
+        }
     }
 
     @Transactional

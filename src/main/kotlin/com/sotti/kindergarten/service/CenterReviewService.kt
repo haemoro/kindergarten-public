@@ -9,6 +9,7 @@ import com.sotti.kindergarten.entity.Center
 import com.sotti.kindergarten.entity.CenterReview
 import com.sotti.kindergarten.repository.CenterRepository
 import com.sotti.kindergarten.repository.CenterReviewRepository
+import com.sotti.kindergarten.util.toPageResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -103,13 +104,7 @@ class CenterReviewService(
             centerReviewRepository
                 .findByCenterIdOrderByPostDateDesc(centerId, PageRequest.of(page, size))
 
-        return PageResponse(
-            content = reviewPage.content.map { it.toResponse() },
-            page = reviewPage.number,
-            size = reviewPage.size,
-            totalElements = reviewPage.totalElements,
-            totalPages = reviewPage.totalPages,
-        )
+        return reviewPage.toPageResponse { it.toResponse() }
     }
 
     @Transactional(readOnly = true)
