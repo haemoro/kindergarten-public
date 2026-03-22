@@ -8,6 +8,7 @@ import com.querydsl.jpa.impl.JPAQuery
 import com.querydsl.jpa.impl.JPAQueryFactory
 import com.sotti.kindergarten.entity.Center
 import com.sotti.kindergarten.entity.QCenter
+import com.sotti.kindergarten.util.parseTypes
 import jakarta.persistence.EntityManager
 import jakarta.persistence.Query
 import org.springframework.data.domain.Page
@@ -20,13 +21,6 @@ class CenterRepositoryImpl(
     private val entityManager: EntityManager,
 ) : CenterRepositoryCustom {
     private val qCenter = QCenter.center
-
-    private fun parseTypes(establishType: String?): List<String>? =
-        establishType
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?.takeIf { it.isNotEmpty() }
 
     override fun findAllWithFilters(
         filter: CenterSearchFilter,

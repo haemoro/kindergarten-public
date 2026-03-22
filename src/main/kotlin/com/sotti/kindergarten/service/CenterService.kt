@@ -40,8 +40,11 @@ import com.sotti.kindergarten.exception.ErrorCode
 import com.sotti.kindergarten.exception.InvalidCompareRequestException
 import com.sotti.kindergarten.repository.CenterRepository
 import com.sotti.kindergarten.repository.CenterSearchFilter
+import com.sotti.kindergarten.repository.CompareProjection
 import com.sotti.kindergarten.repository.RegionRepository
 import com.sotti.kindergarten.repository.SearchListProjection
+import com.sotti.kindergarten.util.parseTypes
+import com.sotti.kindergarten.util.toPageResponse
 import org.springframework.cache.annotation.Cacheable
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
@@ -78,13 +81,7 @@ class CenterService(
                 centerRepository.findAllWithFilters(filter, pageable, lat, lng)
             }
 
-        return PageResponse(
-            content = projPage.content.map { it.toCenterListResponse() },
-            page = projPage.number,
-            size = projPage.size,
-            totalElements = projPage.totalElements,
-            totalPages = projPage.totalPages,
-        )
+        return projPage.toPageResponse { it.toCenterListResponse() }
     }
 
     @Cacheable("centerDetail", key = "#id")
@@ -105,27 +102,7 @@ class CenterService(
             throw CenterNotFoundException(missingId ?: request.centerIds.first())
         }
 
-        val comparisons =
-            projections.map { projection ->
-                ComparisonItem(
-                    id = projection.id,
-                    name = projection.name,
-                    establishType = projection.establishType,
-                    address = projection.address,
-                    distanceKm = projection.distanceKm,
-                    capacity = projection.capacity,
-                    currentEnrollment = projection.currentEnrollment,
-                    teacherCount = projection.teacherCount,
-                    classCount = projection.classCount,
-                    mealProvided = projection.mealProvided,
-                    busAvailable = projection.busAvailable,
-                    extendedCare = projection.extendedCare,
-                    buildingArea = projection.buildingArea,
-                    classroomArea = projection.classroomArea,
-                    cctvInstalled = projection.cctvInstalled,
-                    cctvTotal = projection.cctvTotal,
-                )
-            }
+        val comparisons = projections.map { it.toComparisonItem() }
 
         return CenterCompareResponse(centers = comparisons)
     }
@@ -162,13 +139,7 @@ class CenterService(
                 centerRepository.findAllWithFilters(filter, pageable, lat, lng)
             }
 
-        return PageResponse(
-            content = projPage.content.map { it.toAppSearchResponse() },
-            page = projPage.number,
-            size = projPage.size,
-            totalElements = projPage.totalElements,
-            totalPages = projPage.totalPages,
-        )
+        return projPage.toPageResponse { it.toAppSearchResponse() }
     }
 
     @Cacheable("appCenterDetail", key = "#id")
@@ -204,27 +175,7 @@ class CenterService(
             throw BusinessException(ErrorCode.KINDERGARTEN_NOT_FOUND)
         }
 
-        val comparisons =
-            activeProjections.map { projection ->
-                ComparisonItem(
-                    id = projection.id,
-                    name = projection.name,
-                    establishType = projection.establishType,
-                    address = projection.address,
-                    distanceKm = projection.distanceKm,
-                    capacity = projection.capacity,
-                    currentEnrollment = projection.currentEnrollment,
-                    teacherCount = projection.teacherCount,
-                    classCount = projection.classCount,
-                    mealProvided = projection.mealProvided,
-                    busAvailable = projection.busAvailable,
-                    extendedCare = projection.extendedCare,
-                    buildingArea = projection.buildingArea,
-                    classroomArea = projection.classroomArea,
-                    cctvInstalled = projection.cctvInstalled,
-                    cctvTotal = projection.cctvTotal,
-                )
-            }
+        val comparisons = activeProjections.map { it.toComparisonItem() }
 
         return AppCompareResponse(centers = comparisons)
     }
@@ -775,12 +726,25 @@ class CenterService(
             null
         }
 
-    private fun parseTypes(establishType: String?): List<String>? =
-        establishType
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?.takeIf { it.isNotEmpty() }
+    private fun CompareProjection.toComparisonItem(): ComparisonItem =
+        ComparisonItem(
+            id = id,
+            name = name,
+            establishType = establishType,
+            address = address,
+            distanceKm = distanceKm,
+            capacity = capacity,
+            currentEnrollment = currentEnrollment,
+            teacherCount = teacherCount,
+            classCount = classCount,
+            mealProvided = mealProvided,
+            busAvailable = busAvailable,
+            extendedCare = extendedCare,
+            buildingArea = buildingArea,
+            classroomArea = classroomArea,
+            cctvInstalled = cctvInstalled,
+            cctvTotal = cctvTotal,
+        )
 
     private fun resolveRegionNames(
         sidoCode: String?,
